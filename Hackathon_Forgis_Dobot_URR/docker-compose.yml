@@ -55,6 +55,10 @@ services:
       - ./backend/src:/app/src  # Development mount for code changes
       - ./backend/src/data/flow:/app/flows  # Persist flow definitions
       - ./backend/weights:/app/weights  # YOLO model weights
+    deploy:
+      resources:
+        limits:
+          memory: 8G
     restart: unless-stopped
 
   # ── Frontend ─────────────────────────────────────────────────
