@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   BookOpen,
   Bot,
-  CircleCheck,
   Loader2,
   PlugZap,
   RefreshCcw,
@@ -11,11 +10,12 @@ import {
 } from "lucide-react";
 import type { Device } from "@/types";
 import {
-  executeUrDigitalOutputCommand,
-  executeUrMoveJointCommand,
+  executeRobotDigitalOutputCommand,
+  executeRobotMoveJointCommand,
   getRobotState,
   type RobotState,
 } from "@/api/robotApi";
+import { getOverallHealth } from "@/api/healthApi";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,10 +36,8 @@ type CommandState =
 const JOINT_LABELS = ["J1", "J2", "J3", "J4", "J5", "J6"];
 const JOINT_STEP_OPTIONS = [1, 2, 5];
 
-function isUrRobot(device: Device): boolean {
-  if (device.type !== "robot") return false;
-  const source = `${device.vendor} ${device.name}`.toLowerCase();
-  return source.includes("universal robots") || source.includes(" ur");
+function isRobotDevice(device: Device): boolean {
+  return device.type === "robot";
 }
 
 function formatJoint(value: number | undefined): string {
@@ -51,10 +49,11 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function UrControlPane() {
+function RobotControlPane({ device }: { device: Device }) {
   const [robotState, setRobotState] = useState<RobotState | null>(null);
   const [loadingState, setLoadingState] = useState(false);
   const [readError, setReadError] = useState<string | null>(null);
+  const [ioAvailable, setIoAvailable] = useState(false);
 
   const [jointTargets, setJointTargets] = useState<number[]>(Array(6).fill(0));
   const [jointStepDeg, setJointStepDeg] = useState(2);
@@ -92,6 +91,30 @@ function UrControlPane() {
     return () => window.clearInterval(interval);
   }, [refreshState]);
 
+  useEffect(() => {
+    let disposed = false;
+
+    const syncCapabilities = async () => {
+      try {
+        const health = await getOverallHealth();
+        if (disposed) return;
+        setIoAvailable(Boolean(health.devices.io_robot));
+      } catch {
+        if (!disposed) setIoAvailable(false);
+      }
+    };
+
+    void syncCapabilities();
+    const interval = window.setInterval(() => {
+      void syncCapabilities();
+    }, 5000);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+    };
+  }, []);
+
   const executeAction = useCallback(
     async (label: string, action: () => Promise<void>) => {
       setCommandState({ type: "running", message: `${label} in progress...` });
@@ -125,7 +148,7 @@ function UrControlPane() {
     setJointTargets(target);
 
     await executeAction(`${JOINT_LABELS[jointIndex]} jog`, async () => {
-      await executeUrMoveJointCommand(target, {
+      await executeRobotMoveJointCommand(target, {
         acceleration,
         velocity,
         toleranceDeg: 1.0,
@@ -140,7 +163,7 @@ function UrControlPane() {
     }
 
     await executeAction("MoveJ target", async () => {
-      await executeUrMoveJointCommand(jointTargets, {
+      await executeRobotMoveJointCommand(jointTargets, {
         acceleration,
         velocity,
         toleranceDeg: 1.0,
@@ -150,7 +173,7 @@ function UrControlPane() {
 
   const handleSetDo = async (value: boolean) => {
     await executeAction(`DO[${doPin}] -> ${value ? "HIGH" : "LOW"}`, async () => {
-      await executeUrDigitalOutputCommand(doPin, value);
+      await executeRobotDigitalOutputCommand(doPin, value);
     });
   };
 
@@ -172,7 +195,7 @@ function UrControlPane() {
             )}
           />
           <span className="forgis-text-detail font-forgis-body">
-            {connected ? "UR controller connected" : "UR controller offline"}
+            {connected ? `${device.name} connected` : `${device.name} offline`}
           </span>
         </div>
         <Button
@@ -311,47 +334,53 @@ function UrControlPane() {
         </Button>
       </div>
 
-      <div className="rounded-lg border border-border/60 bg-card p-3">
-        <h4 className="mb-2 forgis-text-label font-forgis-digit uppercase text-[var(--gunmetal-50)]">Digital Output</h4>
-        <div className="grid grid-cols-[1fr_1fr_1fr] gap-2">
-          <Input
-            type="number"
-            min={0}
-            max={7}
-            value={doPin}
-            disabled={busy || !connected}
-            className="h-8 text-[11px] font-forgis-digit"
-            onChange={(event) => {
-              const next = Number.parseInt(event.target.value, 10);
-              if (!Number.isNaN(next)) setDoPin(clamp(next, 0, 7));
-            }}
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 text-[11px] font-forgis-digit"
-            disabled={busy || !connected}
-            onClick={() => void handleSetDo(true)}
-          >
-            HIGH
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 text-[11px] font-forgis-digit"
-            disabled={busy || !connected}
-            onClick={() => void handleSetDo(false)}
-          >
-            LOW
-          </Button>
+      {ioAvailable ? (
+        <div className="rounded-lg border border-border/60 bg-card p-3">
+          <h4 className="mb-2 forgis-text-label font-forgis-digit uppercase text-[var(--gunmetal-50)]">Digital Output</h4>
+          <div className="grid grid-cols-[1fr_1fr_1fr] gap-2">
+            <Input
+              type="number"
+              min={0}
+              max={7}
+              value={doPin}
+              disabled={busy || !connected}
+              className="h-8 text-[11px] font-forgis-digit"
+              onChange={(event) => {
+                const next = Number.parseInt(event.target.value, 10);
+                if (!Number.isNaN(next)) setDoPin(clamp(next, 0, 7));
+              }}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 text-[11px] font-forgis-digit"
+              disabled={busy || !connected}
+              onClick={() => void handleSetDo(true)}
+            >
+              HIGH
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 text-[11px] font-forgis-digit"
+              disabled={busy || !connected}
+              onClick={() => void handleSetDo(false)}
+            >
+              LOW
+            </Button>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="rounded-lg border border-border/60 bg-card p-3 text-[11px] text-[var(--gunmetal-50)] font-forgis-body">
+          Digital I/O executor is not available for the current robot configuration.
+        </div>
+      )}
     </div>
   );
 }
 
 export function DeviceControlPanel({ device, className }: DeviceControlPanelProps) {
-  const urDevice = useMemo(() => isUrRobot(device), [device]);
+  const robotDevice = useMemo(() => isRobotDevice(device), [device]);
 
   return (
     <div className={cn("flex flex-1 min-h-0 flex-col border-t border-border", className)}>
@@ -382,28 +411,28 @@ export function DeviceControlPanel({ device, className }: DeviceControlPanelProp
         </TabsList>
 
         <TabsContent value="guide" className="mt-2 flex-1 overflow-y-auto">
-          {urDevice ? (
+          {robotDevice ? (
             <div className="space-y-3 rounded-lg border border-border/60 bg-card p-3">
               <div className="flex items-center gap-2">
                 <PlugZap className="h-4 w-4 text-primary" />
-                <h4 className="forgis-text-label font-forgis-digit uppercase text-[var(--gunmetal-50)]">UR Operational Guide</h4>
+                <h4 className="forgis-text-label font-forgis-digit uppercase text-[var(--gunmetal-50)]">Robot Operational Guide</h4>
               </div>
 
               <ol className="space-y-2 text-[11px] leading-relaxed text-foreground/90 font-forgis-body">
                 <li>
-                  1. Keep PC and UR controller on the same subnet, and verify robot reachability using ping.
+                  1. Keep PC and controller on the same subnet, and verify reachability using ping.
                 </li>
                 <li>
-                  2. On teach pendant open Installation, then URCaps, then External Control; set Host IP to the PC and Port to 50002.
+                  2. Run backend + matching driver profile (`ROBOT_TYPE` and `COMPOSE_PROFILES`) with correct robot IP in `.env`.
                 </li>
                 <li>
-                  3. Ensure backend config uses UR mode (`ROBOT_TYPE=ur`, `COMPOSE_PROFILES=ur`) with correct `ROBOT_IP`.
+                  3. Put the robot in remote/external mode so ROS control is accepted (UR: External Control, DOBOT: Remote TCP).
                 </li>
                 <li>
-                  4. Launch stack, then on pendant load and play External Control program before sending motion.
+                  4. Confirm `/api/robot/state` reports `connected: true` before sending commands.
                 </li>
                 <li>
-                  5. Confirm joint telemetry appears and only then use jog/move commands from this panel.
+                  5. Use small jog increments first, then execute full target motions.
                 </li>
               </ol>
 
@@ -425,16 +454,12 @@ export function DeviceControlPanel({ device, className }: DeviceControlPanelProp
         </TabsContent>
 
         <TabsContent value="control" className="mt-2 flex-1 overflow-y-auto">
-          {urDevice ? (
-            <UrControlPane />
+          {robotDevice ? (
+            <RobotControlPane device={device} />
           ) : (
             <div className="rounded-lg border border-border/60 bg-card p-3">
-              <div className="mb-1 flex items-center gap-2 text-[var(--gunmetal-50)]">
-                <CircleCheck className="h-4 w-4" />
-                <span className="forgis-text-label font-forgis-digit uppercase">Control Profile Pending</span>
-              </div>
               <div className="forgis-text-detail text-[var(--gunmetal-50)] font-forgis-body">
-                This pane is reserved for device-specific controls. UR robot controls are active now.
+                Control is available only for devices of type `robot`.
               </div>
             </div>
           )}

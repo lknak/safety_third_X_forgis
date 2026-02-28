@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from "react";
-import { ChevronLeft, ChevronRight, Send } from "lucide-react";
+import { Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ChatMessage } from "@/types";
 import { CHAT_TEXTAREA_MAX_HEIGHT } from "@/constants/chatConfig";
@@ -27,7 +27,6 @@ export function CoderSidebar({ messages, loading, onSend }: CoderSidebarProps) {
     setInput("");
   };
 
-  return (
   return (
     <div className="flex flex-col h-full min-h-[500px] overflow-hidden">
       <div className="flex flex-col px-1 pb-0 overflow-hidden h-full">

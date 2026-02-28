@@ -42,7 +42,7 @@ export const DEFAULT_DEVICES: Device[] = [
     vendor: "Universal Robots",
     type: "robot",
     status: "disconnected",
-    ip: "192.168.0.101",
+    ip: "192.168.163.11",
     reachable: false,
     onlineSince: "2024-02-20T10:00:00Z",
     firmwareVersion: "5.11.0",

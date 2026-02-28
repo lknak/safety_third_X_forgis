@@ -150,6 +150,18 @@ export async function executeUrMoveJointCommand(
   }
 }
 
+export async function executeRobotMoveJointCommand(
+  targetJointsDeg: number[],
+  options?: {
+    acceleration?: number;
+    velocity?: number;
+    toleranceDeg?: number;
+    timeoutMs?: number;
+  },
+): Promise<void> {
+  await executeUrMoveJointCommand(targetJointsDeg, options);
+}
+
 export async function executeUrDigitalOutputCommand(
   pin: number,
   value: boolean,
@@ -189,4 +201,12 @@ export async function executeUrDigitalOutputCommand(
   } finally {
     await deleteFlow(flowId).catch(() => undefined);
   }
+}
+
+export async function executeRobotDigitalOutputCommand(
+  pin: number,
+  value: boolean,
+  timeoutMs = 15000,
+): Promise<void> {
+  await executeUrDigitalOutputCommand(pin, value, timeoutMs);
 }

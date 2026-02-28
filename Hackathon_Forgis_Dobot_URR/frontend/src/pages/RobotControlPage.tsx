@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { TopBar } from "@/components/layout/Topbar";
@@ -29,7 +29,6 @@ import {
 } from "@/components/ui/dialog";
 import {
   MessageSquare,
-  Cpu,
   ShieldCheck,
   Pause,
   Play,
@@ -52,8 +51,40 @@ export function RobotControlPage() {
   const [viewMode, setViewMode] = useState<"canvas" | "panel">("canvas");
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
   const [detailDevice, setDetailDevice] = useState<Device | null>(null);
-  const [devicesOpen, setDevicesOpen] = useState(false);
+
   const [chatOpen, setChatOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(260);
+  const [isResizing, setIsResizing] = useState(false);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+
+  const startResizing = useCallback(() => {
+    setIsResizing(true);
+  }, []);
+
+  const stopResizing = useCallback(() => {
+    setIsResizing(false);
+  }, []);
+
+  const resize = useCallback(
+    (mouseMoveEvent: MouseEvent) => {
+      if (isResizing) {
+        const newWidth = mouseMoveEvent.clientX;
+        if (newWidth > 200 && newWidth < 600) {
+          setSidebarWidth(newWidth);
+        }
+      }
+    },
+    [isResizing]
+  );
+
+  useEffect(() => {
+    window.addEventListener("mousemove", resize);
+    window.addEventListener("mouseup", stopResizing);
+    return () => {
+      window.removeEventListener("mousemove", resize);
+      window.removeEventListener("mouseup", stopResizing);
+    };
+  }, [resize, stopResizing]);
 
   // Auto-connect hardware on mount
   useEffect(() => {
@@ -125,34 +156,7 @@ export function RobotControlPage() {
             </button>
           </div>
         )}
-
         <div className="flex items-center gap-4">
-          <Dialog open={devicesOpen} onOpenChange={setDevicesOpen}>
-            <DialogTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 forgis-text-label font-forgis-digit uppercase text-[10px] gap-2 text-[var(--gunmetal-50)] hover:text-primary transition-colors"
-              >
-                <Cpu size={14} />
-                Devices
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-md h-[80vh] flex flex-col p-4 bg-card border-border">
-              <DialogHeader className="mb-4">
-                <DialogTitle>Robot Control & Devices</DialogTitle>
-              </DialogHeader>
-              <DevicesSidebar
-                selectedStep={selectedStep}
-                onDeselectStep={() => setSelectedStep(null)}
-                onParamChange={(nodeId, stepId, key, value) => updateStepParams(nodeId, stepId, { [key]: value })}
-                nodeCreatorOpen={nodeCreatorOpen}
-                onCloseNodeCreator={() => setNodeCreatorOpen(false)}
-                onOpenDeviceDetail={setDetailDevice}
-              />
-            </DialogContent>
-          </Dialog>
-
           <Dialog open={chatOpen} onOpenChange={setChatOpen}>
             <DialogTrigger asChild>
               <Button
@@ -186,6 +190,33 @@ export function RobotControlPage() {
       </div>
 
       <div className="flex flex-1 overflow-hidden relative">
+        {/* Left Sidebar - Devices */}
+        <aside
+          ref={sidebarRef}
+          style={{ width: `${sidebarWidth}px` }}
+          className={cn(
+            "border-r border-border bg-card/40 backdrop-blur-sm p-4 flex flex-col z-10 overflow-hidden relative group shrink-0",
+            isResizing && "select-none"
+          )}
+        >
+          <DevicesSidebar
+            selectedStep={selectedStep}
+            onDeselectStep={() => setSelectedStep(null)}
+            onParamChange={(nodeId, stepId, key, value) => updateStepParams(nodeId, stepId, { [key]: value })}
+            nodeCreatorOpen={nodeCreatorOpen}
+            onCloseNodeCreator={() => setNodeCreatorOpen(false)}
+            onOpenDeviceDetail={setDetailDevice}
+          />
+          {/* Resize Handle */}
+          <div
+            onMouseDown={startResizing}
+            className={cn(
+              "absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/40 transition-colors z-20",
+              isResizing && "bg-primary w-1.5"
+            )}
+          />
+        </aside>
+
         {/* Main Workspace */}
         <div className="flex-1 relative bg-[var(--background)]">
           {viewMode === "canvas" ? (

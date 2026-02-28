@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import type { Device, SelectedStep } from "@/types";
 import { DEFAULT_DEVICES } from "@/constants/deviceConfig";
+import { getOverallHealth } from "@/api/healthApi";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { DeviceList } from "./DeviceList";
 import { AddDeviceDialog } from "./AddDeviceDialog";
 import { NodeCreatorDialog } from "./NodeCreatorDialog";
 import { ParameterEditor } from "./ParameterEditor";
-import { DeviceControlPanel } from "./DeviceControlPanel";
 
 interface DevicesSidebarProps {
   selectedStep?: SelectedStep | null;
@@ -36,6 +36,46 @@ export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, no
     }
   }, [devices, selectedDeviceId]);
 
+  useEffect(() => {
+    let disposed = false;
+
+    const syncRobotHealth = async () => {
+      try {
+        const health = await getOverallHealth();
+        if (disposed) return;
+
+        const robotHealth = health.devices.robot;
+        if (!robotHealth) return;
+
+        const isConnected = robotHealth.status === "connected";
+        setDevices((prev) =>
+          prev.map((device) =>
+            device.type === "robot"
+              ? {
+                  ...device,
+                  status: robotHealth.status,
+                  reachable: isConnected,
+                  onlineSince: isConnected ? device.onlineSince ?? new Date().toISOString() : device.onlineSince,
+                }
+              : device,
+          ),
+        );
+      } catch {
+        // Keep existing local state if backend health endpoint is temporarily unavailable.
+      }
+    };
+
+    void syncRobotHealth();
+    const intervalId = window.setInterval(() => {
+      void syncRobotHealth();
+    }, 3000);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
   const handleDeleteDevice = (id: string) => {
     setDevices((prev) => prev.filter((d) => d.id !== id));
   };
@@ -62,7 +102,6 @@ export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, no
   }, {} as Record<string, Device[]>);
 
   const groupOrder: string[] = ["robot", "gripper", "camera", "sensor"];
-  const selectedDevice = devices.find((device) => device.id === selectedDeviceId) ?? null;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -151,13 +190,6 @@ export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, no
             selectedStep={selectedStep}
             onDeselectStep={onDeselectStep}
             onParamChange={onParamChange}
-          />
-        )}
-
-        {!selectedStep && selectedDevice && (
-          <DeviceControlPanel
-            device={selectedDevice}
-            className="-mx-3 mt-3 min-h-0"
           />
         )}
       </div>
