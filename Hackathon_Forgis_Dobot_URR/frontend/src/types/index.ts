@@ -44,7 +44,7 @@ export interface ChatMessage {
 
 // ── Device types ────────────────────────────────────────────
 
-export type DeviceType = "robot" | "camera" | "sensor";
+export type DeviceType = "robot" | "camera" | "sensor" | "gripper";
 export type DeviceStatus = "connected" | "warning" | "disconnected";
 
 export interface Device {
@@ -54,6 +54,10 @@ export interface Device {
   type: DeviceType;
   status: DeviceStatus;
   ip: string;
+  reachable: boolean;
+  onlineSince?: string;
+  firmwareVersion?: string;
+  lastMaintenance?: string;
 }
 
 // ── Step selection (for parameter editor) ───────────────────

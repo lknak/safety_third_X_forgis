@@ -1,4 +1,4 @@
-import { Activity, Bot, Eye } from "lucide-react";
+import { Activity, Bot, Eye, Hand } from "lucide-react";
 import type { DeviceType, DeviceStatus, Device } from "@/types";
 
 // ── Icon mapping ─────────────────────────────────────────────
@@ -7,6 +7,7 @@ export const DEVICE_ICONS: Record<DeviceType, React.ComponentType<{ className?: 
   robot: Bot,
   camera: Eye,
   sensor: Activity,
+  gripper: Hand,
 };
 
 // ── Status display ───────────────────────────────────────────
@@ -29,6 +30,7 @@ export const BRANDS: Record<DeviceType, string[]> = {
   robot: ["Universal Robots", "ABB", "KUKA", "Fanuc", "Yaskawa", "Doosan"],
   camera: ["Intel RealSense", "Cognex", "Keyence", "Basler", "Sick", "Allied Vision"],
   sensor: ["Sick", "Pepperl+Fuchs", "Banner Engineering", "ifm", "Balluff"],
+  gripper: ["OnRobot", "Robotiq", "Schunk", "SMC", "Zimmer Group"],
 };
 
 // ── Default devices (pre-populated) ─────────────────────────
@@ -41,6 +43,9 @@ export const DEFAULT_DEVICES: Device[] = [
     type: "robot",
     status: "disconnected",
     ip: "192.168.0.101",
+    reachable: false,
+    onlineSince: "2024-02-20T10:00:00Z",
+    firmwareVersion: "5.11.0",
   },
   {
     id: "cam-default",
@@ -49,6 +54,20 @@ export const DEFAULT_DEVICES: Device[] = [
     type: "camera",
     status: "disconnected",
     ip: "localhost:8765",
+    reachable: false,
+    onlineSince: "2024-02-21T08:30:00Z",
+    firmwareVersion: "2.54.0",
+  },
+  {
+    id: "gripper-default",
+    name: "RG2 Gripper",
+    vendor: "OnRobot",
+    type: "gripper",
+    status: "disconnected",
+    ip: "192.168.0.103",
+    reachable: false,
+    onlineSince: "2024-02-22T09:15:00Z",
+    firmwareVersion: "1.2.3",
   },
 ];
 
@@ -60,6 +79,8 @@ export interface DeviceFormData {
   robotModel: string;
   name: string;
   apiEndpoint: string;
+  firmwareVersion: string;
+  lastMaintenance: string;
 }
 
 export const EMPTY_FORM: DeviceFormData = {
@@ -68,4 +89,6 @@ export const EMPTY_FORM: DeviceFormData = {
   robotModel: "",
   name: "",
   apiEndpoint: "",
+  firmwareVersion: "",
+  lastMaintenance: "",
 };

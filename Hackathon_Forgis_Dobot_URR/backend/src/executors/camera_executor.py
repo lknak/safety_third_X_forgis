@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Optional
 
 import cv2
 import numpy as np
-from openai import AsyncAzureOpenAI
+from ai_service import ai_service
 
 from .base import Executor
 
@@ -65,9 +65,8 @@ class CameraExecutor(Executor):
         self._yolo_model = None
         self._yolo_model_name = os.environ.get("YOLO_MODEL", "/app/weights/roboflow_logistics.pt")
 
-        # Azure OpenAI client (lazy loaded)
-        self._openai_client: Optional[AsyncAzureOpenAI] = None
-        self._azure_deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+        # Gemini AI client (lazy loaded)
+        self._ai_service = ai_service
 
         # Last detection result for cropping
         self._last_bbox: Optional[BoundingBox] = None
@@ -80,9 +79,8 @@ class CameraExecutor(Executor):
         # loop = asyncio.get_event_loop()
         # await loop.run_in_executor(None, self._get_yolo_model)
 
-        # Pre-initialize Azure OpenAI client AND warm up the HTTP connection
-        # so the first real read_label() call doesn't pay the TLS/auth cold-start
-        await self._warmup_openai()
+        # Pre-initialize Gemini client (no warmup needed)
+        logger.info("Gemini AI service ready")
 
         timeout = 10.0
         elapsed = 0.0
@@ -114,34 +112,7 @@ class CameraExecutor(Executor):
             logger.info("YOLO model loaded")
         return self._yolo_model
 
-    def _get_openai_client(self) -> AsyncAzureOpenAI:
-        """Get or create Azure OpenAI client."""
-        if self._openai_client is None:
-            self._openai_client = AsyncAzureOpenAI(
-                api_key=os.environ.get("AZURE_OPENAI_API_KEY"),
-                api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
-                azure_endpoint=os.environ.get("AZURE_OPENAI_ENDPOINT"),
-            )
-        return self._openai_client
-
-    async def _warmup_openai(self) -> None:
-        """Send a minimal request to establish the HTTP/TLS connection pool.
-
-        This eliminates the cold-start latency on the first real read_label() call.
-        """
-        try:
-            client = self._get_openai_client()
-            await asyncio.wait_for(
-                client.chat.completions.create(
-                    model=self._azure_deployment,
-                    messages=[{"role": "user", "content": "hi"}],
-                    max_completion_tokens=1,
-                ),
-                timeout=15.0,
-            )
-            logger.info("Azure OpenAI connection warmed up successfully")
-        except Exception as e:
-            logger.warning(f"Azure OpenAI warmup failed (non-fatal): {e}")
+    # Removed Azure OpenAI Warmup
 
     # --- Streaming ---
 
@@ -393,30 +364,9 @@ class CameraExecutor(Executor):
         b64_image = base64.b64encode(image_bytes).decode()
 
         try:
-            client = self._get_openai_client()
-            response = await asyncio.wait_for(
-                client.chat.completions.create(
-                    model=self._azure_deployment,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {"url": f"data:image/jpeg;base64,{b64_image}"},
-                                },
-                            ],
-                        }
-                    ],
-                    max_completion_tokens=300,
-                ),
-                timeout=50.0,  # generous timeout to handle cold-start connection
-            )
-
-            label = response.choices[0].message.content or ""
-            logger.info(f"OpenAI Vision response: {label[:100]}...")
-            return {"success": True, "label": label.strip()}
+            response_text = await self._ai_service.analyze_image(prompt, image_bytes)
+            logger.info(f"Gemini Vision response: {response_text[:100]}...")
+            return {"success": True, "label": response_text.strip()}
 
         except asyncio.TimeoutError:
             logger.error("OpenAI Vision timeout after 25 seconds")
@@ -466,38 +416,16 @@ class CameraExecutor(Executor):
         b64_image = base64.b64encode(image_bytes).decode()
 
         try:
-            client = self._get_openai_client()
-            response = await asyncio.wait_for(
-                client.chat.completions.create(
-                    model=self._azure_deployment,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {"url": f"data:image/jpeg;base64,{b64_image}"},
-                                },
-                            ],
-                        }
-                    ],
-                    max_completion_tokens=50,
-                ),
-                timeout=50.0,
-            )
-
-            raw_response = response.choices[0].message.content or ""
-            raw_response = raw_response.strip().upper()
-            logger.info(f"check_quality OpenAI response: {raw_response}")
+            response_text = await self._ai_service.analyze_image(prompt, image_bytes)
+            logger.info(f"check_quality Gemini response: {response_text}")
 
             # Parse response - look for READABLE or NOT_READABLE
-            readable = "READABLE" in raw_response and "NOT_READABLE" not in raw_response
+            readable = "READABLE" in response_text.upper() and "NOT_READABLE" not in response_text.upper()
 
             return {
                 "success": True,
                 "readable": readable,
-                "raw_response": raw_response,
+                "raw_response": response_text,
             }
 
         except asyncio.TimeoutError:

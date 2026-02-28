@@ -20,6 +20,34 @@ interface DevicesSidebarProps {
 export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, nodeCreatorOpen, onCloseNodeCreator }: DevicesSidebarProps) {
   const [devices, setDevices] = useState<Device[]>(DEFAULT_DEVICES);
   const [collapsed, setCollapsed] = useState(false);
+  const [editingDevice, setEditingDevice] = useState<Device | null>(null);
+
+  const handleDeleteDevice = (id: string) => {
+    setDevices((prev) => prev.filter((d) => d.id !== id));
+  };
+
+  const handleEditDevice = (device: Device) => {
+    setEditingDevice(device);
+  };
+
+  const handleAddOrUpdateDevice = (device: Device) => {
+    setDevices((prev) => {
+      const exists = prev.find((d) => d.id === device.id);
+      if (exists) {
+        return prev.map((d) => (d.id === device.id ? device : d));
+      }
+      return [...prev, device];
+    });
+  };
+
+  const groupedDevices = devices.reduce((acc, device) => {
+    const type = device.type;
+    if (!acc[type]) acc[type] = [];
+    acc[type].push(device);
+    return acc;
+  }, {} as Record<string, Device[]>);
+
+  const groupOrder: string[] = ["robot", "gripper", "camera", "sensor"];
 
   return (
     <div
@@ -50,13 +78,44 @@ export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, no
                   Add
                 </Button>
               }
-              onAdd={(device) => setDevices((prev) => [...prev, device])}
+              onAdd={handleAddOrUpdateDevice}
+              editingDevice={editingDevice}
+              onOpenChange={(open) => !open && setEditingDevice(null)}
             />
           </div>
 
-          {/* Device list */}
+          {/* Device list groups */}
           <div className={cn("overflow-y-auto -mx-3", selectedStep ? "shrink-0 max-h-[40%]" : "flex-1")}>
-            <DeviceList devices={devices} compact />
+            {groupOrder.map((type) => {
+              const group = groupedDevices[type];
+              if (!group || group.length === 0) return null;
+
+              return (
+                <div key={type} className="mb-4 last:mb-0">
+                  <div className="px-3 mb-1">
+                    <h3 className="forgis-text-detail font-medium uppercase text-[var(--gunmetal-50)] text-[10px] tracking-wider font-forgis-digit">
+                      {type}s
+                    </h3>
+                  </div>
+                  <DeviceList devices={group} compact onDelete={handleDeleteDevice} onEdit={handleEditDevice} />
+                </div>
+              );
+            })}
+
+            {/* Any other types not in groupOrder */}
+            {Object.entries(groupedDevices).map(([type, group]) => {
+              if (groupOrder.includes(type)) return null;
+              return (
+                <div key={type} className="mb-4 last:mb-0">
+                  <div className="px-3 mb-1">
+                    <h3 className="forgis-text-detail font-medium uppercase text-[var(--gunmetal-50)] text-[10px] tracking-wider font-forgis-digit">
+                      {type}s
+                    </h3>
+                  </div>
+                  <DeviceList devices={group} compact onDelete={handleDeleteDevice} onEdit={handleEditDevice} />
+                </div>
+              );
+            })}
           </div>
 
           {/* Node creator dialog */}

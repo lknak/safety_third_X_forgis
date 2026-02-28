@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link, useParams } from "react-router-dom";
 import { TopBar } from "@/components/layout/Topbar";
 import { CoderSidebar } from "@/components/chat/CoderSidebar";
 import { FlowCanvas } from "@/components/flow/FlowCanvas";
@@ -15,9 +16,13 @@ import {
 import { useFlowGeneration } from "@/hooks/useFlowGeneration";
 import { useCamera } from "@/hooks/useCamera";
 import { useFlowExecution } from "@/hooks/useFlowExecution";
+import { LINES } from "@/constants/factoryData";
 import type { SelectedStep } from "@/types";
 
 export function RobotControlPage() {
+  const { lineId, cellId } = useParams<{ lineId: string; cellId: string }>();
+  const line = LINES.find(l => l.id === lineId);
+  const cell = line?.cells.find(c => c.id === cellId);
   const { flow, messages, loading, sendMessage, updateStepParams } = useFlowGeneration();
   const { cameraFrame, lastLabel, bboxOverlay, callbacks: cameraCallbacks } = useCamera();
   const { flowStatus, nodeStates, finishing, startFlow, pauseFlow, resumeFlow, finishFlow, resetFlow } = useFlowExecution(flow, cameraCallbacks);
@@ -32,20 +37,20 @@ export function RobotControlPage() {
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
-              <BreadcrumbLink href="/" className="forgis-text-label font-forgis-body text-[var(--gunmetal-50)] no-underline">
-                Forgis Factory
+              <BreadcrumbLink asChild className="forgis-text-label font-forgis-body text-[var(--gunmetal-50)] no-underline">
+                <Link to="/">Forgis Factory</Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
-              <BreadcrumbLink href="/" className="forgis-text-label font-forgis-body text-[var(--gunmetal-50)] no-underline">
-                Line 1
+              <BreadcrumbLink asChild className="forgis-text-label font-forgis-body text-[var(--gunmetal-50)] no-underline">
+                <Link to={`/line/${lineId}`}>{line?.name || "Line"}</Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbPage className="forgis-text-label font-forgis-body text-[var(--gunmetal-50)]">
-                Labelling and Sorting
+                {cell?.name || "Cell"}
               </BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>

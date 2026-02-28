@@ -9,6 +9,9 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 from flow import FlowSchema, FlowStatusResponse
+from ai_service import ai_service
+import json
+import uuid
 
 router = APIRouter(prefix="/api/flows", tags=["flows"])
 
@@ -366,20 +369,81 @@ _DEFAULT_FLOW_ID = "dobot_test_pick"
 @router.post("/generate", response_model=FlowGenerateResponse)
 async def generate_flow(request: FlowGenerateRequest):
     """
-    Load and return the default flow definition.
-
-    TODO (hackathon): Implement AI-based flow generation from the natural
-    language prompt in `request.prompt`. The response must conform to
-    FlowGenerateResponse (nodes + edges in frontend format).
+    Generate a robot automation flow from a natural language prompt using Gemini.
     """
-    logger.debug("generate_flow called with prompt: %r", request.prompt)
-    manager = get_manager()
-
-    flow = manager.get_flow(_DEFAULT_FLOW_ID)
-    if flow is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Default flow '{_DEFAULT_FLOW_ID}' not found",
-        )
-
-    return convert_backend_to_frontend(flow)
+    logger.info("Generating flow for prompt: %r", request.prompt)
+    
+    system_prompt = """
+    You are an industrial robotics expert. Generate a robot automation flow in JSON format based on the user's request.
+    The response must be a valid JSON object conforming to the following structure (FlowSchema):
+    {
+      "id": "unique_id",
+      "name": "Human Readable Name",
+      "initial_state": "start_state_name",
+      "loop": false,
+      "variables": {},
+      "states": [
+        {
+          "name": "state_name",
+          "steps": [
+            {
+              "id": "step_id",
+              "skill": "skill_name",
+              "executor": "robot|camera|io_robot|hand",
+              "params": {},
+              "timeout_ms": 30000
+            }
+          ]
+        }
+      ],
+      "transitions": [
+        {
+          "type": "sequential|conditional",
+          "from_state": "state_name",
+          "to_state": "state_name",
+          "condition": "optional_condition_string"
+        }
+      ]
+    }
+    
+    Available Executors and Skills:
+    - robot: move_joint (params: target_joints_deg [list]), move_cartesian (params: target_pose [list]), set_tool_output (params: index, status), wait (params: duration_ms)
+    - camera: detect_objects (params: class_name), read_label (params: prompt), check_quality (params: prompt), start_streaming, stop_streaming
+    - hand: set_fingers (params: targets [list of 0-100])
+    - io_robot: set_digital_output (params: index, status), get_digital_input (params: index)
+    
+    Ensure the flow is logical, has a clear start, and follows industrial safety best practices.
+    Return ONLY the JSON object, no other text.
+    """
+    
+    try:
+        response_text = await ai_service.generate_text(request.prompt, system_instruction=system_prompt)
+        
+        # Clean up response if it contains markdown code blocks
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in response_text:
+            response_text = response_text.split("```")[1].split("```")[0].strip()
+            
+        flow_data = json.loads(response_text)
+        
+        # Ensure ID and name are present
+        if "id" not in flow_data or not flow_data["id"]:
+            flow_data["id"] = f"gen_{uuid.uuid4().hex[:8]}"
+        if "name" not in flow_data or not flow_data["name"]:
+            flow_data["name"] = f"Generated Flow: {request.prompt[:30]}..."
+            
+        flow = FlowSchema.model_validate(flow_data)
+        return convert_backend_to_frontend(flow)
+        
+    except Exception as e:
+        logger.error(f"Flow generation failed: {e}")
+        # Fallback to default flow if generation fails completely
+        manager = get_manager()
+        flow = manager.get_flow(_DEFAULT_FLOW_ID)
+        if flow is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Generation failed and default flow not found: {e}",
+            )
+        return convert_backend_to_frontend(flow)
