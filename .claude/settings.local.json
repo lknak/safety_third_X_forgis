@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import sys,json; [print\\(f''{m[\"\"Source\"\"]} -> {m[\"\"Destination\"\"]}''\\) for m in json.load\\(sys.stdin\\)]\")",
+      "Bash(curl -s http://localhost:8001/api/robot/state)",
+      "Bash(docker restart ur-driver)",
+      "Bash(docker restart forgis-backend)",
+      "Bash(xargs grep -l \"Pose\\\\|Transform\")",
+      "Bash(grep -r \"import\" backend/src/nodes/*.py)",
+      "Bash(xargs grep -l \"publish\\\\|subscriber\\\\|create_subscription\")"
+    ]
+  }
+}

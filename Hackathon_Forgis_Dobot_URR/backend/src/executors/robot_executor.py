@@ -147,6 +147,35 @@ class RobotExecutor(Executor):
         self._robot.resend_robot_program()
         return False
 
+    async def jog_joint(
+        self,
+        target_rad: list[float],
+        acceleration: float = 1.4,
+        velocity: float = 1.05,
+        tolerance_rad: float = 0.02,
+        timeout: float = 15.0,
+    ) -> bool:
+        """
+        Jog to a nearby target. Uses primary script (same as move_joint)
+        because secondary scripts cannot override the active trajectory controller.
+        """
+        logger.info(f"RobotExecutor: Jog to {target_rad}")
+        self._robot.send_movej(target_rad, accel=acceleration, vel=velocity)
+
+        elapsed = 0.0
+        while elapsed < timeout:
+            if self._robot.joints_at_target(target_rad, tolerance=tolerance_rad):
+                logger.info("RobotExecutor: Jog complete")
+                await asyncio.sleep(0.2)
+                self._robot.resend_robot_program()
+                return True
+            await asyncio.sleep(self._motion_poll_interval)
+            elapsed += self._motion_poll_interval
+
+        logger.warning(f"RobotExecutor: Jog timeout after {timeout}s")
+        self._robot.resend_robot_program()
+        return False
+
     async def set_digital_output(self, pin: int, value: bool) -> None:
         """
         Set a digital output pin.

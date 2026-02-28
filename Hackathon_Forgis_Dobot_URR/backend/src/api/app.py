@@ -1,5 +1,6 @@
 """FastAPI application factory."""
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
@@ -7,15 +8,17 @@ from typing import TYPE_CHECKING
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import flows_router, skills_router, camera_router, config_router, health_router, cell_router
+from .routes import flows_router, skills_router, camera_router, config_router, health_router, cell_router, robot_router
 from .routes.flows import set_flow_manager
 from .routes.camera import set_camera_executor
+from .routes.robot import set_robot_control_dependencies
 from .websocket import WebSocketManager
 
 if TYPE_CHECKING:
     from executors.camera_executor import CameraExecutor
     from executors.hand_executor import HandExecutor
     from executors.io_executor import IOExecutor
+    from executors.base import Executor
     from flow.manager import FlowManager
     from nodes.ur_node import RobotNode
 
@@ -26,6 +29,7 @@ def create_app(
     flow_manager: "FlowManager",
     ws_manager: WebSocketManager,
     robot_node: "RobotNode",
+    robot_executor: "Executor",
     camera_executor: "CameraExecutor" = None,
     io_robot_executor: "IOExecutor" = None,
     hand_executor: "HandExecutor" = None,
@@ -52,7 +56,26 @@ def create_app(
         # Inject camera executor if available
         if camera_executor:
             set_camera_executor(camera_executor)
+        set_robot_control_dependencies(flow_manager, robot_executor, io_robot_executor)
+
+        # Initialize executors in the background (runs on uvicorn's event loop)
+        async def _init_executors():
+            await asyncio.sleep(1)  # Small delay to let API start
+            try:
+                await robot_executor.initialize()
+                if io_robot_executor is not None:
+                    await io_robot_executor.initialize()
+                if camera_executor:
+                    await camera_executor.initialize()
+                if hand_executor:
+                    await hand_executor.initialize()
+                logger.info("All executors initialized")
+            except Exception as e:
+                logger.error(f"Executor initialization failed: {e}")
+
+        init_task = asyncio.create_task(_init_executors())
         yield
+        init_task.cancel()
         logger.info("FastAPI application shutting down")
 
     app = FastAPI(
@@ -77,7 +100,9 @@ def create_app(
     app.include_router(camera_router)
     app.include_router(config_router)
     app.include_router(health_router)
-    app.include_router(cell_router)
+    if cell_router is not None:
+        app.include_router(cell_router)
+    app.include_router(robot_router)
 
     # WebSocket endpoint
     @app.websocket("/ws")

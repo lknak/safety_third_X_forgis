@@ -9,6 +9,7 @@ export interface RobotState {
   timestamp: number;
   connected: boolean;
   joints_deg: number[] | null;
+  tcp_pose_mm_deg: number[] | null;
   io: {
     digital_in: IoPinState[];
     digital_out: IoPinState[];
@@ -47,6 +48,11 @@ interface ManualFlowSchema {
     to_state: string;
     condition?: string;
   }>;
+}
+
+interface DirectRobotCommandResponse {
+  success: boolean;
+  message: string;
 }
 
 const STATUS_POLL_MS = 300;
@@ -163,6 +169,68 @@ async function ensureRobotConnected(): Promise<void> {
   }
 }
 
+function shouldFallbackToFlowExecution(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return message.includes("not found") || message.includes("405") || message.includes("method not allowed");
+}
+
+async function executeDirectJogJointCommand(
+  targetJointsDeg: number[],
+  options?: {
+    acceleration?: number;
+    velocity?: number;
+    toleranceDeg?: number;
+    timeoutMs?: number;
+  },
+): Promise<void> {
+  await postJson<DirectRobotCommandResponse>("/robot/jog-joint", {
+    target_joints_deg: targetJointsDeg,
+    acceleration: options?.acceleration ?? 0.5,
+    velocity: options?.velocity ?? 0.5,
+    tolerance_deg: options?.toleranceDeg ?? 1.0,
+    timeout_ms: options?.timeoutMs ?? 15000,
+  });
+}
+
+async function executeDirectMoveJointCommand(
+  targetJointsDeg: number[],
+  options?: {
+    acceleration?: number;
+    velocity?: number;
+    toleranceDeg?: number;
+    timeoutMs?: number;
+  },
+): Promise<void> {
+  await postJson<DirectRobotCommandResponse>("/robot/move-joint", {
+    target_joints_deg: targetJointsDeg,
+    acceleration: options?.acceleration ?? 1.2,
+    velocity: options?.velocity ?? 1.0,
+    tolerance_deg: options?.toleranceDeg ?? 1.0,
+    timeout_ms: options?.timeoutMs ?? 45000,
+  });
+}
+
+async function executeDirectMoveLinearCommand(
+  pose: number[],
+  options?: {
+    acceleration?: number;
+    velocity?: number;
+    timeoutMs?: number;
+  },
+): Promise<void> {
+  await postJson<DirectRobotCommandResponse>("/robot/move-linear", {
+    pose,
+    acceleration: options?.acceleration ?? 1.2,
+    velocity: options?.velocity ?? 0.25,
+    timeout_ms: options?.timeoutMs ?? 45000,
+  });
+}
+
+async function executeDirectDigitalOutputCommand(pin: number, value: boolean): Promise<void> {
+  await postJson<DirectRobotCommandResponse>("/robot/set-digital-output", { pin, value });
+}
+
 export async function executeUrMoveJointCommand(
   targetJointsDeg: number[],
   options?: {
@@ -173,6 +241,15 @@ export async function executeUrMoveJointCommand(
   },
 ): Promise<void> {
   await ensureRobotConnected();
+
+  try {
+    await executeDirectMoveJointCommand(targetJointsDeg, options);
+    return;
+  } catch (error) {
+    if (!shouldFallbackToFlowExecution(error)) {
+      throw error;
+    }
+  }
 
   const flowId = `manual_ur_move_joint_${Date.now()}`;
   const timeoutMs = options?.timeoutMs ?? 45000;
@@ -194,6 +271,19 @@ export async function executeUrMoveJointCommand(
   await runManualFlow(flow, timeoutMs);
 }
 
+export async function executeRobotJogJointCommand(
+  targetJointsDeg: number[],
+  options?: {
+    acceleration?: number;
+    velocity?: number;
+    toleranceDeg?: number;
+    timeoutMs?: number;
+  },
+): Promise<void> {
+  await ensureRobotConnected();
+  await executeDirectJogJointCommand(targetJointsDeg, options);
+}
+
 export async function executeRobotMoveJointCommand(
   targetJointsDeg: number[],
   options?: {
@@ -212,6 +302,15 @@ export async function executeUrDigitalOutputCommand(
   timeoutMs = 15000,
 ): Promise<void> {
   await ensureRobotConnected();
+
+  try {
+    await executeDirectDigitalOutputCommand(pin, value);
+    return;
+  } catch (error) {
+    if (!shouldFallbackToFlowExecution(error)) {
+      throw error;
+    }
+  }
 
   const flowId = `manual_ur_set_do_${Date.now()}`;
 
@@ -235,4 +334,42 @@ export async function executeRobotDigitalOutputCommand(
   timeoutMs = 15000,
 ): Promise<void> {
   await executeUrDigitalOutputCommand(pin, value, timeoutMs);
+}
+
+export async function executeRobotMoveLinearCommand(
+  pose: number[],
+  options?: {
+    acceleration?: number;
+    velocity?: number;
+    timeoutMs?: number;
+  },
+): Promise<void> {
+  await ensureRobotConnected();
+
+  try {
+    await executeDirectMoveLinearCommand(pose, options);
+    return;
+  } catch (error) {
+    if (!shouldFallbackToFlowExecution(error)) {
+      throw error;
+    }
+  }
+
+  const flowId = `manual_ur_move_linear_${Date.now()}`;
+  const timeoutMs = options?.timeoutMs ?? 45000;
+  const stepTimeoutMs = Math.max(1000, timeoutMs - 5000);
+
+  const flow = buildSingleStepManualFlow(flowId, "Manual UR Move Linear", {
+    id: "step_move_linear",
+    skill: "move_linear",
+    executor: "robot",
+    params: {
+      pose,
+      acceleration: options?.acceleration ?? 1.2,
+      velocity: options?.velocity ?? 0.25,
+    },
+    timeout_ms: stepTimeoutMs,
+  });
+
+  await runManualFlow(flow, timeoutMs);
 }

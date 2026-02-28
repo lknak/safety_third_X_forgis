@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 import threading
@@ -90,7 +89,15 @@ def main():
     )
 
     # FastAPI application
-    app = create_app(flow_manager, ws_manager, robot, camera_executor, io_robot_executor, hand_executor)
+    app = create_app(
+        flow_manager,
+        ws_manager,
+        robot,
+        robot_executor,
+        camera_executor,
+        io_robot_executor,
+        hand_executor,
+    )
 
     # ROS 2 executor with nodes
     ros_executor = MultiThreadedExecutor()
@@ -103,21 +110,8 @@ def main():
     ros_thread.start()
     logger.info("ROS 2 executor started in background thread")
 
-    async def init_executors():
-        logger.info("Initializing executors...")
-        try:
-            await asyncio.sleep(1) # Small delay to let API start
-            await robot_executor.initialize()
-            if io_robot_executor is not None:
-                await io_robot_executor.initialize()
-            await camera_executor.initialize()
-            await hand_executor.initialize()
-            logger.info("Executors initialized")
-        except Exception as e:
-            logger.error(f"Executor initialization failed: {e}")
-
-    # Start executor initialization in the background
-    asyncio.get_event_loop().create_task(init_executors())
+    # Executor initialization is handled inside the FastAPI lifespan
+    # (see api/app.py) so it runs on uvicorn's event loop.
 
     # Run FastAPI server (blocks main thread)
     try:
