@@ -18,6 +18,8 @@ export interface RobotState {
 interface FlowStatusResponse {
   status: string;
   flow_id?: string | null;
+  current_state?: string | null;
+  current_step?: string | null;
   error_message?: string | null;
 }
 
@@ -48,6 +50,8 @@ interface ManualFlowSchema {
 }
 
 const STATUS_POLL_MS = 300;
+const MANUAL_STATE_NAME = "manual_execute";
+const MANUAL_DONE_STATE = "manual_done";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -70,21 +74,30 @@ async function deleteFlow(flowId: string): Promise<void> {
   }
 }
 
+function describeFlowProgress(status: FlowStatusResponse): string {
+  const state = status.current_state ? `state='${status.current_state}'` : "state='n/a'";
+  const step = status.current_step ? `step='${status.current_step}'` : "step='n/a'";
+  return `${state}, ${step}, status='${status.status}'`;
+}
+
 async function waitForFlowCompletion(flowId: string, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let hasSeenFlow = false;
+  let lastSeenFlowStatus: FlowStatusResponse | null = null;
 
   while (Date.now() < deadline) {
     const status = await getFlowStatus();
 
     if (status.flow_id === flowId) {
       hasSeenFlow = true;
+      lastSeenFlowStatus = status;
 
       if (status.status === "completed" || status.status === "idle") {
         return;
       }
       if (status.status === "error" || status.status === "aborted") {
-        throw new Error(status.error_message || `Flow '${flowId}' failed`);
+        const progress = describeFlowProgress(status);
+        throw new Error(status.error_message || `Flow '${flowId}' failed (${progress})`);
       }
     } else if (hasSeenFlow && status.status === "idle") {
       // Fallback: backend may drop flow_id when returning to idle.
@@ -94,11 +107,60 @@ async function waitForFlowCompletion(flowId: string, timeoutMs: number): Promise
     await sleep(STATUS_POLL_MS);
   }
 
-  throw new Error(`Flow '${flowId}' timed out after ${Math.round(timeoutMs / 1000)}s`);
+  const progress = lastSeenFlowStatus
+    ? `Last progress: ${describeFlowProgress(lastSeenFlowStatus)}.`
+    : "No progress was reported for this flow.";
+  throw new Error(
+    `Flow '${flowId}' timed out after ${Math.round(timeoutMs / 1000)}s. ${progress} ` +
+      "Check robot remote/external control mode and clear any active protective stop.",
+  );
 }
 
 export async function getRobotState(): Promise<RobotState> {
   return getJson<RobotState>("/robot/state");
+}
+
+function buildSingleStepManualFlow(flowId: string, name: string, step: ManualFlowStep): ManualFlowSchema {
+  return {
+    id: flowId,
+    name,
+    initial_state: MANUAL_STATE_NAME,
+    loop: false,
+    variables: {},
+    states: [
+      {
+        name: MANUAL_STATE_NAME,
+        steps: [step],
+      },
+      {
+        name: MANUAL_DONE_STATE,
+        steps: [],
+      },
+    ],
+    transitions: [
+      {
+        type: "sequential",
+        from_state: MANUAL_STATE_NAME,
+        to_state: MANUAL_DONE_STATE,
+      },
+    ],
+  };
+}
+
+async function runManualFlow(flow: ManualFlowSchema, timeoutMs: number): Promise<void> {
+  await upsertAndStartFlow(flow);
+  try {
+    await waitForFlowCompletion(flow.id, timeoutMs);
+  } finally {
+    await deleteFlow(flow.id).catch(() => undefined);
+  }
+}
+
+async function ensureRobotConnected(): Promise<void> {
+  const robotState = await getRobotState();
+  if (!robotState.connected) {
+    throw new Error("Robot is offline. Wait for '/api/robot/state' to report connected=true and retry.");
+  }
 }
 
 export async function executeUrMoveJointCommand(
@@ -110,44 +172,26 @@ export async function executeUrMoveJointCommand(
     timeoutMs?: number;
   },
 ): Promise<void> {
+  await ensureRobotConnected();
+
   const flowId = `manual_ur_move_joint_${Date.now()}`;
-  const timeoutMs = options?.timeoutMs ?? 70000;
+  const timeoutMs = options?.timeoutMs ?? 45000;
   const stepTimeoutMs = Math.max(1000, timeoutMs - 5000);
 
-  const flow: ManualFlowSchema = {
-    id: flowId,
-    name: "Manual UR Move Joint",
-    initial_state: "manual_move_joint",
-    loop: false,
-    variables: {},
-    states: [
-      {
-        name: "manual_move_joint",
-        steps: [
-          {
-            id: "step_move_joint",
-            skill: "move_joint",
-            executor: "robot",
-            params: {
-              target_joints_deg: targetJointsDeg,
-              acceleration: options?.acceleration ?? 1.2,
-              velocity: options?.velocity ?? 1.0,
-              tolerance_deg: options?.toleranceDeg ?? 1.0,
-            },
-            timeout_ms: stepTimeoutMs,
-          },
-        ],
-      },
-    ],
-    transitions: [],
-  };
+  const flow = buildSingleStepManualFlow(flowId, "Manual UR Move Joint", {
+    id: "step_move_joint",
+    skill: "move_joint",
+    executor: "robot",
+    params: {
+      target_joints_deg: targetJointsDeg,
+      acceleration: options?.acceleration ?? 1.2,
+      velocity: options?.velocity ?? 1.0,
+      tolerance_deg: options?.toleranceDeg ?? 1.0,
+    },
+    timeout_ms: stepTimeoutMs,
+  });
 
-  await upsertAndStartFlow(flow);
-  try {
-    await waitForFlowCompletion(flowId, timeoutMs);
-  } finally {
-    await deleteFlow(flowId).catch(() => undefined);
-  }
+  await runManualFlow(flow, timeoutMs);
 }
 
 export async function executeRobotMoveJointCommand(
@@ -167,40 +211,22 @@ export async function executeUrDigitalOutputCommand(
   value: boolean,
   timeoutMs = 15000,
 ): Promise<void> {
+  await ensureRobotConnected();
+
   const flowId = `manual_ur_set_do_${Date.now()}`;
 
-  const flow: ManualFlowSchema = {
-    id: flowId,
-    name: "Manual UR Set DO",
-    initial_state: "manual_set_do",
-    loop: false,
-    variables: {},
-    states: [
-      {
-        name: "manual_set_do",
-        steps: [
-          {
-            id: "step_set_do",
-            skill: "io_set_digital_output",
-            executor: "io_robot",
-            params: {
-              pin,
-              value,
-            },
-            timeout_ms: Math.max(1000, timeoutMs - 2000),
-          },
-        ],
-      },
-    ],
-    transitions: [],
-  };
+  const flow = buildSingleStepManualFlow(flowId, "Manual UR Set DO", {
+    id: "step_set_do",
+    skill: "io_set_digital_output",
+    executor: "io_robot",
+    params: {
+      pin,
+      value,
+    },
+    timeout_ms: Math.max(1000, timeoutMs - 2000),
+  });
 
-  await upsertAndStartFlow(flow);
-  try {
-    await waitForFlowCompletion(flowId, timeoutMs);
-  } finally {
-    await deleteFlow(flowId).catch(() => undefined);
-  }
+  await runManualFlow(flow, timeoutMs);
 }
 
 export async function executeRobotDigitalOutputCommand(

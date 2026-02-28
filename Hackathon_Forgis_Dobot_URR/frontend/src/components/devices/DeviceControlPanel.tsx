@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   BookOpen,
@@ -56,15 +56,21 @@ function RobotControlPane({ device }: { device: Device }) {
   const [ioAvailable, setIoAvailable] = useState(false);
 
   const [jointTargets, setJointTargets] = useState<number[]>(Array(6).fill(0));
+  const [targetsDirty, setTargetsDirty] = useState(false);
   const [jointStepDeg, setJointStepDeg] = useState(2);
   const [acceleration, setAcceleration] = useState(1.2);
   const [velocity, setVelocity] = useState(1.0);
   const [doPin, setDoPin] = useState(0);
+  const targetsDirtyRef = useRef(false);
 
   const [commandState, setCommandState] = useState<CommandState>({
     type: "idle",
     message: "Ready",
   });
+
+  useEffect(() => {
+    targetsDirtyRef.current = targetsDirty;
+  }, [targetsDirty]);
 
   const refreshState = useCallback(async () => {
     setLoadingState(true);
@@ -72,7 +78,7 @@ function RobotControlPane({ device }: { device: Device }) {
     try {
       const state = await getRobotState();
       setRobotState(state);
-      if (state.joints_deg && state.joints_deg.length === 6) {
+      if (!targetsDirtyRef.current && state.joints_deg && state.joints_deg.length === 6) {
         setJointTargets(state.joints_deg.map((joint) => Number(joint.toFixed(2))));
       }
     } catch (error) {
@@ -98,7 +104,8 @@ function RobotControlPane({ device }: { device: Device }) {
       try {
         const health = await getOverallHealth();
         if (disposed) return;
-        setIoAvailable(Boolean(health.devices.io_robot));
+        const ioHealth = health.devices.io_robot;
+        setIoAvailable(ioHealth?.status === "connected");
       } catch {
         if (!disposed) setIoAvailable(false);
       }
@@ -122,9 +129,11 @@ function RobotControlPane({ device }: { device: Device }) {
         await action();
         setCommandState({ type: "success", message: `${label} completed` });
         await refreshState();
+        return true;
       } catch (error) {
         const detail = error instanceof Error ? error.message : `${label} failed`;
         setCommandState({ type: "error", message: detail });
+        return false;
       }
     },
     [refreshState],
@@ -146,14 +155,18 @@ function RobotControlPane({ device }: { device: Device }) {
     const target = [...currentJoints];
     target[jointIndex] = Number((target[jointIndex] + direction * jointStepDeg).toFixed(2));
     setJointTargets(target);
+    setTargetsDirty(true);
 
-    await executeAction(`${JOINT_LABELS[jointIndex]} jog`, async () => {
+    const success = await executeAction(`${JOINT_LABELS[jointIndex]} jog`, async () => {
       await executeRobotMoveJointCommand(target, {
         acceleration,
         velocity,
         toleranceDeg: 1.0,
       });
     });
+    if (success) {
+      setTargetsDirty(false);
+    }
   };
 
   const handleMoveToTargets = async () => {
@@ -162,13 +175,16 @@ function RobotControlPane({ device }: { device: Device }) {
       return;
     }
 
-    await executeAction("MoveJ target", async () => {
+    const success = await executeAction("MoveJ target", async () => {
       await executeRobotMoveJointCommand(jointTargets, {
         acceleration,
         velocity,
         toleranceDeg: 1.0,
       });
     });
+    if (success) {
+      setTargetsDirty(false);
+    }
   };
 
   const handleSetDo = async (value: boolean) => {
@@ -271,7 +287,25 @@ function RobotControlPane({ device }: { device: Device }) {
       </div>
 
       <div className="rounded-lg border border-border/60 bg-card p-3">
-        <h4 className="mb-2 forgis-text-label font-forgis-digit uppercase text-[var(--gunmetal-50)]">MoveJ Target</h4>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h4 className="forgis-text-label font-forgis-digit uppercase text-[var(--gunmetal-50)]">MoveJ Target</h4>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 px-2.5 text-[10px] uppercase tracking-wider font-forgis-digit"
+            disabled={busy || !connected}
+            onClick={() => {
+              if (currentJoints && currentJoints.length === 6) {
+                setJointTargets(currentJoints.map((joint) => Number(joint.toFixed(2))));
+                setTargetsDirty(false);
+              } else {
+                void refreshState();
+              }
+            }}
+          >
+            Use Current Joints
+          </Button>
+        </div>
         <div className="grid grid-cols-3 gap-1.5">
           {jointTargets.map((value, index) => (
             <Input
@@ -283,6 +317,7 @@ function RobotControlPane({ device }: { device: Device }) {
               className="h-8 text-[11px] font-forgis-digit"
               onChange={(event) => {
                 const nextValue = Number.parseFloat(event.target.value);
+                setTargetsDirty(true);
                 setJointTargets((prev) =>
                   prev.map((joint, jointIndex) => (jointIndex === index ? (Number.isNaN(nextValue) ? joint : nextValue) : joint)),
                 );
@@ -372,7 +407,7 @@ function RobotControlPane({ device }: { device: Device }) {
         </div>
       ) : (
         <div className="rounded-lg border border-border/60 bg-card p-3 text-[11px] text-[var(--gunmetal-50)] font-forgis-body">
-          Digital I/O executor is not available for the current robot configuration.
+          Digital I/O executor is unavailable or offline for the current robot configuration.
         </div>
       )}
     </div>
