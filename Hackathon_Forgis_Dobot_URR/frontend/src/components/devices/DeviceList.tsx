@@ -9,9 +9,11 @@ interface DeviceListProps {
   compact?: boolean;
   onDelete?: (id: string) => void;
   onEdit?: (device: Device) => void;
+  selectedId?: string | null;
+  onSelect?: (device: Device) => void;
 }
 
-export function DeviceList({ devices, compact = false, onDelete, onEdit }: DeviceListProps) {
+export function DeviceList({ devices, compact = false, onDelete, onEdit, selectedId, onSelect }: DeviceListProps) {
   if (devices.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-1.5 py-5 text-muted-foreground">
@@ -33,8 +35,17 @@ export function DeviceList({ devices, compact = false, onDelete, onEdit }: Devic
           const Icon = DEVICE_ICONS[device.type];
           const color = STATUS_COLOR[device.status];
           const label = STATUS_LABEL[device.status];
+          const selected = selectedId === device.id;
           return (
-            <div key={device.id} className="flex flex-col p-3 group hover:bg-muted/30 transition-colors">
+            <div
+              key={device.id}
+              className={cn(
+                "flex flex-col p-3 group transition-colors",
+                onSelect ? "cursor-pointer" : "",
+                selected ? "bg-primary/5 border-l-2 border-l-primary" : "hover:bg-muted/30",
+              )}
+              onClick={() => onSelect?.(device)}
+            >
               <div className="flex items-center gap-2.5 mb-1">
                 <div className="shrink-0 w-6 h-6 rounded-md bg-muted/50 flex items-center justify-center">
                   <Icon className="w-3.5 h-3.5 text-muted-foreground" />
@@ -121,8 +132,17 @@ export function DeviceList({ devices, compact = false, onDelete, onEdit }: Devic
         const Icon = DEVICE_ICONS[device.type];
         const color = STATUS_COLOR[device.status];
         const label = STATUS_LABEL[device.status];
+        const selected = selectedId === device.id;
         return (
-          <div key={device.id} className="flex flex-col group hover:bg-muted/20 transition-colors">
+          <div
+            key={device.id}
+            className={cn(
+              "flex flex-col group transition-colors",
+              onSelect ? "cursor-pointer" : "",
+              selected ? "bg-primary/5" : "hover:bg-muted/20",
+            )}
+            onClick={() => onSelect?.(device)}
+          >
             <div className="flex items-center gap-3 px-6 py-3">
               <div className="shrink-0 w-8 h-8 rounded-md bg-muted/50 flex items-center justify-center">
                 <Icon className="w-4.5 h-4.5 text-muted-foreground" />

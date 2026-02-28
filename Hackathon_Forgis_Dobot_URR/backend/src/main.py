@@ -11,6 +11,7 @@ from api.app import create_app
 from api.websocket import WebSocketManager
 from executors import IOExecutor, RobotExecutor, CameraExecutor, HandExecutor, DobotNova5Executor
 from flow.manager import FlowManager
+from health_service import init_health_service
 from nodes.ur_node import RobotNode
 from nodes.dobot_nova5_node import DobotNova5Node
 from nodes.camera_node import CameraNode
@@ -76,6 +77,9 @@ def main():
     }
     if io_robot_executor is not None:
         executors["io_robot"] = io_robot_executor
+
+    # Health service for diagnostics
+    init_health_service(executors)
 
     # Flow manager for orchestration
     flows_dir = os.environ.get("FLOWS_DIR", "/app/flows")

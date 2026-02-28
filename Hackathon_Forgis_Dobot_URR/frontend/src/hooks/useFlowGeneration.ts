@@ -25,18 +25,19 @@ export function useFlowGeneration() {
       const assistantMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: "assistant",
-        content: `Flow generated with ${result.nodes.length} nodes and ${result.edges.length} edges.`,
+        content: `I've prepared the automation flow: **${result.name}**. It contains ${result.nodes.length - 2} states. You can review and execute it now.`,
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err) {
-      const errorMsg: ChatMessage = {
+      const errorMessage = err instanceof Error ? err.message : "An unexpected alignment error occurred.";
+      const assistantMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: "assistant",
-        content: `Error: ${err instanceof Error ? err.message : "Unknown error"}`,
+        content: `**Feasibility Check Failed**\n\n${errorMessage}`,
         timestamp: Date.now(),
       };
-      setMessages((prev) => [...prev, errorMsg]);
+      setMessages((prev) => [...prev, assistantMsg]);
     } finally {
       setLoading(false);
     }
@@ -51,11 +52,11 @@ export function useFlowGeneration() {
           nodes: prev.nodes.map((node) =>
             node.id === nodeId
               ? {
-                  ...node,
-                  steps: node.steps?.map((s) =>
-                    s.id === stepId ? { ...s, params } : s
-                  ),
-                }
+                ...node,
+                steps: node.steps?.map((s) =>
+                  s.id === stepId ? { ...s, params } : s
+                ),
+              }
               : node
           ),
         };

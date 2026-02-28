@@ -28,15 +28,22 @@ class AIService:
             return
             
         self.api_key = os.environ.get("GEMINI_API_KEY")
-        if not self.api_key:
-            logger.warning("GEMINI_API_KEY not found in environment")
-        else:
+        if self.api_key:
             genai.configure(api_key=self.api_key)
-            logger.info("Gemini AI configured with global API key")
+            logger.info("Gemini AI configured with global API key from environment")
             
         self._text_model = genai.GenerativeModel("gemini-1.5-flash")
         self._vision_model = genai.GenerativeModel("gemini-1.5-flash")
         self._initialized = True
+
+    def configure(self, api_key: str):
+        """Configure Gemini AI with a new API key at runtime."""
+        self.api_key = api_key
+        genai.configure(api_key=self.api_key)
+        # Re-initialize models with new config
+        self._text_model = genai.GenerativeModel("gemini-1.5-flash")
+        self._vision_model = genai.GenerativeModel("gemini-1.5-flash")
+        logger.info("Gemini AI re-configured with new API key at runtime")
 
     async def generate_text(self, prompt: str, system_instruction: Optional[str] = None) -> str:
         """Generate text from a prompt."""

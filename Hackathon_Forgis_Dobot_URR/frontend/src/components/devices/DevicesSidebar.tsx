@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import type { Device, SelectedStep } from "@/types";
 import { DEFAULT_DEVICES } from "@/constants/deviceConfig";
@@ -8,6 +8,7 @@ import { DeviceList } from "./DeviceList";
 import { AddDeviceDialog } from "./AddDeviceDialog";
 import { NodeCreatorDialog } from "./NodeCreatorDialog";
 import { ParameterEditor } from "./ParameterEditor";
+import { DeviceControlPanel } from "./DeviceControlPanel";
 
 interface DevicesSidebarProps {
   selectedStep?: SelectedStep | null;
@@ -15,12 +16,26 @@ interface DevicesSidebarProps {
   onParamChange?: (nodeId: string, stepId: string, key: string, value: unknown) => void;
   nodeCreatorOpen?: boolean;
   onCloseNodeCreator?: () => void;
+  onOpenDeviceDetail?: (device: Device) => void;
 }
 
-export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, nodeCreatorOpen, onCloseNodeCreator }: DevicesSidebarProps) {
+export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, nodeCreatorOpen, onCloseNodeCreator, onOpenDeviceDetail }: DevicesSidebarProps) {
   const [devices, setDevices] = useState<Device[]>(DEFAULT_DEVICES);
   const [collapsed, setCollapsed] = useState(false);
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(DEFAULT_DEVICES[0]?.id ?? null);
+
+  useEffect(() => {
+    if (devices.length === 0) {
+      setSelectedDeviceId(null);
+      return;
+    }
+
+    const stillExists = selectedDeviceId && devices.some((device) => device.id === selectedDeviceId);
+    if (!stillExists) {
+      setSelectedDeviceId(devices[0].id);
+    }
+  }, [devices, selectedDeviceId]);
 
   const handleDeleteDevice = (id: string) => {
     setDevices((prev) => prev.filter((d) => d.id !== id));
@@ -48,6 +63,7 @@ export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, no
   }, {} as Record<string, Device[]>);
 
   const groupOrder: string[] = ["robot", "gripper", "camera", "sensor"];
+  const selectedDevice = devices.find((device) => device.id === selectedDeviceId) ?? null;
 
   return (
     <div
@@ -85,7 +101,7 @@ export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, no
           </div>
 
           {/* Device list groups */}
-          <div className={cn("overflow-y-auto -mx-3", selectedStep ? "shrink-0 max-h-[40%]" : "flex-1")}>
+          <div className={cn("overflow-y-auto -mx-3", selectedStep ? "shrink-0 max-h-[40%]" : "shrink-0 max-h-[38%]")}>
             {groupOrder.map((type) => {
               const group = groupedDevices[type];
               if (!group || group.length === 0) return null;
@@ -97,7 +113,17 @@ export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, no
                       {type}s
                     </h3>
                   </div>
-                  <DeviceList devices={group} compact onDelete={handleDeleteDevice} onEdit={handleEditDevice} />
+                  <DeviceList
+                    devices={group}
+                    compact
+                    selectedId={selectedDeviceId}
+                    onSelect={(device) => {
+                      setSelectedDeviceId(device.id);
+                      onOpenDeviceDetail?.(device);
+                    }}
+                    onDelete={handleDeleteDevice}
+                    onEdit={handleEditDevice}
+                  />
                 </div>
               );
             })}
@@ -112,7 +138,17 @@ export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, no
                       {type}s
                     </h3>
                   </div>
-                  <DeviceList devices={group} compact onDelete={handleDeleteDevice} onEdit={handleEditDevice} />
+                  <DeviceList
+                    devices={group}
+                    compact
+                    selectedId={selectedDeviceId}
+                    onSelect={(device) => {
+                      setSelectedDeviceId(device.id);
+                      onOpenDeviceDetail?.(device);
+                    }}
+                    onDelete={handleDeleteDevice}
+                    onEdit={handleEditDevice}
+                  />
                 </div>
               );
             })}
@@ -130,6 +166,13 @@ export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, no
               selectedStep={selectedStep}
               onDeselectStep={onDeselectStep}
               onParamChange={onParamChange}
+            />
+          )}
+
+          {!selectedStep && selectedDevice && (
+            <DeviceControlPanel
+              device={selectedDevice}
+              className="-mx-3 mt-3 min-h-0"
             />
           )}
         </div>

@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
+import { cn } from "@/lib/utils";
 import { TopBar } from "@/components/layout/Topbar";
 import { CoderSidebar } from "@/components/chat/CoderSidebar";
 import { FlowCanvas } from "@/components/flow/FlowCanvas";
-import { CameraFeed } from "@/components/camera/CameraFeed";
+import { FlowStatePanel } from "@/components/flow/FlowStatePanel";
 import { DevicesSidebar } from "@/components/devices/DevicesSidebar";
 import {
   Breadcrumb,
@@ -17,7 +18,12 @@ import { useFlowGeneration } from "@/hooks/useFlowGeneration";
 import { useCamera } from "@/hooks/useCamera";
 import { useFlowExecution } from "@/hooks/useFlowExecution";
 import { LINES } from "@/constants/factoryData";
-import type { SelectedStep } from "@/types";
+import { Button } from "@/components/ui/button";
+import { ShieldCheck, Pause, Play, RotateCcw } from "lucide-react";
+import { DiagnosticDialog } from "@/components/diagnostics/DiagnosticDialog";
+import { DeviceDetailDialog } from "@/components/devices/DeviceDetailDialog";
+import { getOverallHealth } from "@/api/healthApi";
+import type { SelectedStep, Device } from "@/types";
 
 export function RobotControlPage() {
   const { lineId, cellId } = useParams<{ lineId: string; cellId: string }>();
@@ -29,11 +35,36 @@ export function RobotControlPage() {
 
   const [selectedStep, setSelectedStep] = useState<SelectedStep | null>(null);
   const [nodeCreatorOpen, setNodeCreatorOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<"canvas" | "panel">("canvas");
+  const [diagnosticOpen, setDiagnosticOpen] = useState(false);
+  const [detailDevice, setDetailDevice] = useState<Device | null>(null);
+
+  // Auto-connect hardware on mount
+  useEffect(() => {
+    const checkInitialHealth = async () => {
+      try {
+        const health = await getOverallHealth();
+        if (health.overall_status !== "healthy") {
+          setDiagnosticOpen(true);
+        }
+      } catch (error) {
+        console.error("Initial health check failed:", error);
+      }
+    };
+    checkInitialHealth();
+  }, []);
+
+  // Auto-switch to panel view when flow starts
+  useEffect(() => {
+    if (flowStatus !== "idle" && viewMode === "canvas") {
+      setViewMode("panel");
+    }
+  }, [flowStatus, viewMode]);
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-background">
       <TopBar />
-      <div className="flex items-center px-4 py-1.5 border-b border-border bg-card/80 backdrop-blur-panel">
+      <div className="flex items-center justify-between px-4 py-1.5 border-b border-border bg-card/80 backdrop-blur-panel">
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -55,61 +86,125 @@ export function RobotControlPage() {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-      </div>
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left sidebar - Devices (idle) or Camera Feed (active) */}
-        {flowStatus === "idle" ? (
-          <DevicesSidebar
-            selectedStep={selectedStep}
-            onDeselectStep={() => setSelectedStep(null)}
-            onParamChange={(nodeId, stepId, key, value) => {
-              updateStepParams(nodeId, stepId, {
-                ...selectedStep?.step.params,
-                [key]: value,
-              });
-              setSelectedStep((prev) =>
-                prev
-                  ? { ...prev, step: { ...prev.step, params: { ...prev.step.params, [key]: value } } }
-                  : prev
-              );
-            }}
-            nodeCreatorOpen={nodeCreatorOpen}
-            onCloseNodeCreator={() => setNodeCreatorOpen(false)}
-          />
-        ) : (
-          <CameraFeed frameUrl={cameraFrame} streaming lastLabel={lastLabel} bboxOverlay={bboxOverlay} />
+
+        {flow && (
+          <div className="flex items-center gap-2 rounded-lg bg-muted/30 p-1 border border-border/40">
+            <button
+              onClick={() => setViewMode("canvas")}
+              className={cn(
+                "px-3 py-1 text-[10px] font-forgis-digit uppercase tracking-wider rounded-md transition-all",
+                viewMode === "canvas" ? "bg-white text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Logical Canvas
+            </button>
+            <button
+              onClick={() => setViewMode("panel")}
+              className={cn(
+                "px-3 py-1 text-[10px] font-forgis-digit uppercase tracking-wider rounded-md transition-all",
+                viewMode === "panel" ? "bg-white text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              State Panel
+            </button>
+          </div>
         )}
 
-        {/* Main content area - Flow canvas always visible */}
-        <div className="flex flex-1 min-h-0 overflow-hidden p-5 bg-[var(--panel)]">
-          <div className="flex-1 min-h-0 min-w-0">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 forgis-text-label font-forgis-digit uppercase text-[10px] gap-2 text-[var(--gunmetal-50)] hover:text-primary transition-colors"
+            onClick={() => setDiagnosticOpen(true)}
+          >
+            <ShieldCheck size={14} />
+            Diagnostics
+          </Button>
+        </div>
+      </div>
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left sidebar - Devices (idle) or minimized helper */}
+        <DevicesSidebar
+          selectedStep={selectedStep}
+          onDeselectStep={() => setSelectedStep(null)}
+          onParamChange={updateStepParams}
+          nodeCreatorOpen={nodeCreatorOpen}
+          onCloseNodeCreator={() => setNodeCreatorOpen(false)}
+          onOpenDeviceDetail={setDetailDevice}
+        />
+
+        {/* Main Workspace */}
+        <div className="flex-1 relative bg-[var(--background)]">
+          {viewMode === "canvas" ? (
             <FlowCanvas
               flow={flow}
-              flowStatus={flowStatus}
+              status={flowStatus}
               nodeStates={nodeStates}
-              onStart={startFlow}
-              onPause={pauseFlow}
-              onResume={resumeFlow}
-              onFinish={finishFlow}
-              finishing={finishing}
-              onReset={resetFlow}
-              onSelectStep={(nodeId, step) => {
-                setNodeCreatorOpen(false);
-                setSelectedStep({ nodeId, step });
-              }}
-              onAddNode={() => {
-                setSelectedStep(null);
-                setNodeCreatorOpen(true);
-              }}
+              onSelectStep={(nodeId, stepId) => setSelectedStep({ nodeId, stepId })}
+              onAddNode={() => setNodeCreatorOpen(true)}
             />
+          ) : (
+            <FlowStatePanel
+              flow={flow}
+              nodeStates={nodeStates}
+              cameraFrame={cameraFrame}
+              lastLabel={lastLabel}
+            />
+          )}
+
+          {/* Floating Action Bar */}
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-card/80 backdrop-blur-md border border-border/40 p-1.5 rounded-2xl shadow-2xl z-20">
+            <Button
+              variant={flowStatus === "idle" ? "default" : "secondary"}
+              className="h-10 px-6 rounded-xl font-forgis-digit uppercase tracking-wider"
+              onClick={startFlow}
+              disabled={!flow || flowStatus !== "idle"}
+            >
+              Initialize Sequence
+            </Button>
+
+            {flowStatus !== "idle" && (
+              <>
+                {flowStatus === "running" ? (
+                  <Button variant="outline" className="h-10 w-10 p-0 rounded-xl" onClick={pauseFlow}>
+                    <Pause size={18} />
+                  </Button>
+                ) : (
+                  <Button variant="outline" className="h-10 w-10 p-0 rounded-xl" onClick={resumeFlow}>
+                    <Play size={18} />
+                  </Button>
+                )}
+                <Button variant="destructive" className="h-10 w-10 p-0 rounded-xl" onClick={resetFlow}>
+                  <RotateCcw size={18} />
+                </Button>
+              </>
+            )}
+
+            {flowStatus === "finished" && (
+              <Button
+                variant="default"
+                className="h-10 px-6 rounded-xl bg-[var(--status-healthy)] hover:bg-[var(--status-healthy)]/90"
+                onClick={finishFlow}
+                disabled={finishing}
+              >
+                Complete Mission
+              </Button>
+            )}
           </div>
         </div>
 
-        {/* Right sidebar - Coder (hidden while flow is active) */}
-        {flowStatus === "idle" && (
+        {/* Right sidebar - Chat/Reasoning */}
+        <div className="w-80 border-l border-border bg-card">
           <CoderSidebar messages={messages} loading={loading} onSend={sendMessage} />
-        )}
+        </div>
       </div>
+      <DiagnosticDialog open={diagnosticOpen} onOpenChange={setDiagnosticOpen} />
+      <DeviceDetailDialog
+        device={detailDevice}
+        open={!!detailDevice}
+        onOpenChange={(open) => !open && setDetailDevice(null)}
+      />
     </div>
   );
 }
+```

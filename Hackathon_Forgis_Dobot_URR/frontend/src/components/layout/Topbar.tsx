@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
-import { Bell, Settings, User } from 'lucide-react';
+import { Bell, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { SettingsDialog } from '@/components/settings/SettingsDialog';
 
 interface TopBarProps {
   className?: string;
@@ -38,13 +39,7 @@ export function TopBar({ className }: TopBarProps) {
         >
           <Bell size={12} className="text-white" />
         </button>
-        <button
-          type="button"
-          className="p-1 hover:opacity-80 transition-opacity"
-          aria-label="Settings"
-        >
-          <Settings size={12} className="text-white" />
-        </button>
+        <SettingsDialog />
         <button
           type="button"
           className="p-1 hover:opacity-80 transition-opacity"

@@ -369,42 +369,14 @@ _DEFAULT_FLOW_ID = "dobot_test_pick"
 @router.post("/generate", response_model=FlowGenerateResponse)
 async def generate_flow(request: FlowGenerateRequest):
     """
-    Generate a robot automation flow from a natural language prompt using Gemini.
+    Generate a robot automation flow from a natural language prompt.
+    Includes a validation step to ensure intent feasibility.
     """
     logger.info("Generating flow for prompt: %r", request.prompt)
     
-    system_prompt = """
-    You are an industrial robotics expert. Generate a robot automation flow in JSON format based on the user's request.
-    The response must be a valid JSON object conforming to the following structure (FlowSchema):
-    {
-      "id": "unique_id",
-      "name": "Human Readable Name",
-      "initial_state": "start_state_name",
-      "loop": false,
-      "variables": {},
-      "states": [
-        {
-          "name": "state_name",
-          "steps": [
-            {
-              "id": "step_id",
-              "skill": "skill_name",
-              "executor": "robot|camera|io_robot|hand",
-              "params": {},
-              "timeout_ms": 30000
-            }
-          ]
-        }
-      ],
-      "transitions": [
-        {
-          "type": "sequential|conditional",
-          "from_state": "state_name",
-          "to_state": "state_name",
-          "condition": "optional_condition_string"
-        }
-      ]
-    }
+    # --- Step 1: Validation & Goal Mapping ---
+    validation_prompt = f"""
+    You are an industrial robotics expert. Validate the following instruction: "{request.prompt}"
     
     Available Executors and Skills:
     - robot: move_joint (params: target_joints_deg [list]), move_cartesian (params: target_pose [list]), set_tool_output (params: index, status), wait (params: duration_ms)
@@ -412,11 +384,67 @@ async def generate_flow(request: FlowGenerateRequest):
     - hand: set_fingers (params: targets [list of 0-100])
     - io_robot: set_digital_output (params: index, status), get_digital_input (params: index)
     
-    Ensure the flow is logical, has a clear start, and follows industrial safety best practices.
-    Return ONLY the JSON object, no other text.
+    Instruction:
+    1. Is the goal feasible with current hardware? (e.g., 'fly to Mars' is not)
+    2. Can the instruction be mapped to the available skills?
+    
+    If FEASIBLE, respond with exactly "VALID".
+    If NOT FEASIBLE, respond with "INVALID: [Detailed explanation of why and suggested alternatives]".
     """
     
     try:
+        validation_result = await ai_service.generate_text(validation_prompt)
+        if validation_result.startswith("INVALID:"):
+            error_details = validation_result.replace("INVALID:", "").strip()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_details
+            )
+            
+        # --- Step 2: Flow Generation ---
+        system_prompt = """
+        You are an industrial robotics expert. Generate a robot automation flow in JSON format based on the user's request.
+        The response must be a valid JSON object conforming to the following structure (FlowSchema):
+        {
+          "id": "unique_id",
+          "name": "Human Readable Name",
+          "initial_state": "start_state_name",
+          "loop": false,
+          "variables": {},
+          "states": [
+            {
+              "name": "state_name",
+              "steps": [
+                {
+                  "id": "step_id",
+                  "skill": "skill_name",
+                  "executor": "robot|camera|io_robot|hand",
+                  "params": {},
+                  "timeout_ms": 30000
+                }
+              ]
+            }
+          ],
+          "transitions": [
+            {
+              "type": "sequential|conditional",
+              "from_state": "state_name",
+              "to_state": "state_name",
+              "condition": "optional_condition_string"
+            }
+          ]
+        }
+        
+        Available Executors and Skills:
+        - robot: move_joint (params: target_joints_deg [list]), move_cartesian (params: target_pose [list]), set_tool_output (params: index, status), wait (params: duration_ms)
+        - camera: detect_objects (params: class_name), read_label (params: prompt), check_quality (params: prompt), start_streaming, stop_streaming
+        - hand: set_fingers (params: targets [list of 0-100])
+        - io_robot: set_digital_output (params: index, status), get_digital_input (params: index)
+        
+        Ensure the flow is logical, has a clear start, and follows industrial safety best practices.
+        Return ONLY the JSON object, no other text.
+        """
+        
         response_text = await ai_service.generate_text(request.prompt, system_instruction=system_prompt)
         
         # Clean up response if it contains markdown code blocks
@@ -436,6 +464,8 @@ async def generate_flow(request: FlowGenerateRequest):
         flow = FlowSchema.model_validate(flow_data)
         return convert_backend_to_frontend(flow)
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Flow generation failed: {e}")
         # Fallback to default flow if generation fails completely

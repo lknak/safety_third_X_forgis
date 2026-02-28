@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import flows_router, skills_router, camera_router
+from .routes import flows_router, skills_router, camera_router, config_router, health_router, cell_router
 from .routes.flows import set_flow_manager
 from .routes.camera import set_camera_executor
 from .websocket import WebSocketManager
@@ -75,6 +75,9 @@ def create_app(
     app.include_router(flows_router)
     app.include_router(skills_router)
     app.include_router(camera_router)
+    app.include_router(config_router)
+    app.include_router(health_router)
+    app.include_router(cell_router)
 
     # WebSocket endpoint
     @app.websocket("/ws")
@@ -103,18 +106,7 @@ def create_app(
         finally:
             await ws_manager.disconnect(websocket)
 
-    # Health check endpoint
-    @app.get("/health")
-    async def health_check():
-        """Health check endpoint."""
-        robot_connected = robot_node.get_joint_positions() is not None
-        return {
-            "status": "healthy",
-            "robot_connected": robot_connected,
-            "websocket_connections": ws_manager.connection_count(),
-        }
-
-    # Robot state endpoint
+    # Custom robot state endpoint
     @app.get("/api/robot/state")
     async def get_robot_state():
         """Get current robot state."""
