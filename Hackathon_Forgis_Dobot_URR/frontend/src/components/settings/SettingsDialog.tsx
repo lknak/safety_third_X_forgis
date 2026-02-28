@@ -14,26 +14,51 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { postJson } from "@/api/httpClient";
 
+let didSyncStoredApiKey = false;
+
 export function SettingsDialog() {
     const [open, setOpen] = useState(false);
     const [apiKey, setApiKey] = useState("");
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
-        const savedKey = localStorage.getItem("GEMINI_API_KEY");
-        if (savedKey) setApiKey(savedKey);
+        const savedKey = localStorage.getItem("GEMINI_API_KEY")?.trim() ?? "";
+        if (!savedKey) return;
+
+        setApiKey(savedKey);
+
+        // Re-sync persisted key on app load (backend may have restarted).
+        if (didSyncStoredApiKey) return;
+
+        void postJson<{ status: string; message: string }>("/config/gemini", {
+            gemini_api_key: savedKey,
+        })
+            .then(() => {
+                didSyncStoredApiKey = true;
+            })
+            .catch((error) => {
+                console.warn("Failed to re-sync Gemini API key on startup:", error);
+            });
     }, []);
 
     const handleSave = async () => {
+        const normalizedKey = apiKey.trim();
+        if (!normalizedKey) {
+            alert("Please enter a valid Gemini API key.");
+            return;
+        }
+
         setSaving(true);
         try {
             // Use same-origin API path so SSH/VSCode port forwarding works.
             await postJson<{ status: string; message: string }>("/config/gemini", {
-                gemini_api_key: apiKey,
+                gemini_api_key: normalizedKey,
             });
 
             // Save locally for persistence after backend update succeeds.
-            localStorage.setItem("GEMINI_API_KEY", apiKey);
+            localStorage.setItem("GEMINI_API_KEY", normalizedKey);
+            didSyncStoredApiKey = true;
+            setApiKey(normalizedKey);
 
             setOpen(false);
         } catch (error) {

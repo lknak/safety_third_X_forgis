@@ -38,7 +38,11 @@ class AIService:
 
     def configure(self, api_key: str):
         """Configure Gemini AI with a new API key at runtime."""
-        self.api_key = api_key
+        normalized_key = (api_key or "").strip()
+        if not normalized_key:
+            raise ValueError("Gemini API key must not be empty.")
+
+        self.api_key = normalized_key
         genai.configure(api_key=self.api_key)
         # Re-initialize models with new config
         self._text_model = genai.GenerativeModel("gemini-1.5-flash")
@@ -48,6 +52,9 @@ class AIService:
     async def generate_text(self, prompt: str, system_instruction: Optional[str] = None) -> str:
         """Generate text from a prompt."""
         try:
+            if not self.api_key:
+                raise RuntimeError("Gemini API key is not configured.")
+
             model = self._text_model
             if system_instruction:
                 model = genai.GenerativeModel("gemini-1.5-flash", system_instruction=system_instruction)
@@ -61,6 +68,9 @@ class AIService:
     async def analyze_image(self, prompt: str, image_bytes: bytes) -> str:
         """Analyze an image using Gemini Vision."""
         try:
+            if not self.api_key:
+                raise RuntimeError("Gemini API key is not configured.")
+
             image = Image.open(io.BytesIO(image_bytes))
             response = await self._vision_model.generate_content_async([prompt, image])
             return response.text

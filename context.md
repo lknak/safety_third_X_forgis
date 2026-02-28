@@ -126,3 +126,15 @@ Demonstrate:
 * Visible adaptability
 
 The more autonomous the reasoning and composition, the stronger the demo.
+
+
+Hello friends! I'm Paul, the developer relations lead for Google DeepMind Robotics. I work with all of our partners through our Trusted Tester Program and am very familiar with the ecosystem, write samples/docs/other educational content, and have a background as a software engineer within the robotics space with an additional business degree if people want to bounce ideas off of me.
+
+As you're planning out your projects, I just wanted to share some resources from GDM that might be useful for your projects.
+
+
+AI Studio (https://ai.dev/) is a great starting point for trying our models and prototyping with our code generation build tool. I also have $25 credits available for participants, so come find me near where the opening presentation was this morning.
+Vision Language Models: Gemini 3 (https://ai.google.dev/gemini-api/docs/gemini-3) and Gemini Robotics ER (https://ai.google.dev/gemini-api/docs/robotics-overview). These models are perfect for perception problems, task orchestration, video and task understanding, and a variety of other things related to robotics. We have a cookbook of small tasks (https://github.com/google-gemini/cookbook/blob/main/quickstarts/gemini-robotics-er.ipynb) and I wrote a tutorial for the SOARM101 + SmolVLA project last week (https://dev.to/googleai/teaching-a-robot-to-play-a-toddler-game-vlas-gemini-3-flash-and-first-orchard-14g4)
+Agentic Vision is a feature that was added into Gemini 3 Flash, and I think it has a lot of value for perception tasks, so I wanted to highlight it separately. We've seen this used with some of our robotics partners for zooming in on and localizing images in manufacturing and warehouse environments. You can read up on the feature (https://blog.google/innovation-and-ai/technology/developers-tools/agentic-vision-gemini-3-flash/) or try it in AI Studio (https://aistudio.google.com/apps/bundled/gemini_visual_thinking?showPreview=true&showAssistant=true)
+The Live API is *really* useful for Human-Robot Interaction. You can speak directly with the model, get audio responses back, send video frames for visual context, and a few other things. https://ai.google.dev/gemini-api/docs/live?example=mic-stream
+If simulation is more your thing, I put together a MuJoCo example in AI Studio using a Franka Panda with Gemini for orchestrating pick-and-place operations if you want to test some ideas before moving to real hardware (https://aistudio.google.com/apps/bundled/robotics_franka_pick_and_place?showPreview=true&showAssistant=true)

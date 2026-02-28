@@ -22,7 +22,7 @@ interface DevicesSidebarProps {
 export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, nodeCreatorOpen, onCloseNodeCreator, onOpenDeviceDetail }: DevicesSidebarProps) {
   const [devices, setDevices] = useState<Device[]>(DEFAULT_DEVICES);
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(DEFAULT_DEVICES[0]?.id ?? null);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
 
   useEffect(() => {
     if (devices.length === 0) {
@@ -32,7 +32,7 @@ export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, no
 
     const stillExists = selectedDeviceId && devices.some((device) => device.id === selectedDeviceId);
     if (!stillExists) {
-      setSelectedDeviceId(devices[0].id);
+      setSelectedDeviceId(null);
     }
   }, [devices, selectedDeviceId]);
 
