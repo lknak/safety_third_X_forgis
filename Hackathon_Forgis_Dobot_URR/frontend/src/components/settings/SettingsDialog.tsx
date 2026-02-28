@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { postJson } from "@/api/httpClient";
 
 export function SettingsDialog() {
     const [open, setOpen] = useState(false);
@@ -26,19 +27,13 @@ export function SettingsDialog() {
     const handleSave = async () => {
         setSaving(true);
         try {
-            // Save to local storage for persistence across reloads
-            localStorage.setItem("GEMINI_API_KEY", apiKey);
-
-            // Inform backend about the new key
-            const response = await fetch("http://localhost:8000/api/config/gemini", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ gemini_api_key: apiKey }),
+            // Use same-origin API path so SSH/VSCode port forwarding works.
+            await postJson<{ status: string; message: string }>("/config/gemini", {
+                gemini_api_key: apiKey,
             });
 
-            if (!response.ok) {
-                throw new Error("Failed to update backend configuration");
-            }
+            // Save locally for persistence after backend update succeeds.
+            localStorage.setItem("GEMINI_API_KEY", apiKey);
 
             setOpen(false);
         } catch (error) {

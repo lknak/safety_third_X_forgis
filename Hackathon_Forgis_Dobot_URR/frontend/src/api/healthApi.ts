@@ -12,7 +12,7 @@ export interface OverallHealth {
 }
 
 export interface RetryResponse {
-    success: bool;
+    success: boolean;
     message: string;
 }
 

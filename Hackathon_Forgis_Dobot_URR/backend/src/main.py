@@ -103,16 +103,21 @@ def main():
     ros_thread.start()
     logger.info("ROS 2 executor started in background thread")
 
-    # Initialize executors asynchronously
     async def init_executors():
-        await robot_executor.initialize()
-        if io_robot_executor is not None:
-            await io_robot_executor.initialize()
-        await camera_executor.initialize()
-        await hand_executor.initialize()
+        logger.info("Initializing executors...")
+        try:
+            await asyncio.sleep(1) # Small delay to let API start
+            await robot_executor.initialize()
+            if io_robot_executor is not None:
+                await io_robot_executor.initialize()
+            await camera_executor.initialize()
+            await hand_executor.initialize()
+            logger.info("Executors initialized")
+        except Exception as e:
+            logger.error(f"Executor initialization failed: {e}")
 
-    asyncio.get_event_loop().run_until_complete(init_executors())
-    logger.info("Executors initialized")
+    # Start executor initialization in the background
+    asyncio.get_event_loop().create_task(init_executors())
 
     # Run FastAPI server (blocks main thread)
     try:

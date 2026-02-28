@@ -19,10 +19,24 @@ import { useCamera } from "@/hooks/useCamera";
 import { useFlowExecution } from "@/hooks/useFlowExecution";
 import { LINES } from "@/constants/factoryData";
 import { Button } from "@/components/ui/button";
-import { ShieldCheck, Pause, Play, RotateCcw } from "lucide-react";
+import { getOverallHealth } from "@/api/healthApi";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  MessageSquare,
+  Cpu,
+  ShieldCheck,
+  Pause,
+  Play,
+  RotateCcw
+} from "lucide-react";
 import { DiagnosticDialog } from "@/components/diagnostics/DiagnosticDialog";
 import { DeviceDetailDialog } from "@/components/devices/DeviceDetailDialog";
-import { getOverallHealth } from "@/api/healthApi";
 import type { SelectedStep, Device } from "@/types";
 
 export function RobotControlPage() {
@@ -30,7 +44,7 @@ export function RobotControlPage() {
   const line = LINES.find(l => l.id === lineId);
   const cell = line?.cells.find(c => c.id === cellId);
   const { flow, messages, loading, sendMessage, updateStepParams } = useFlowGeneration();
-  const { cameraFrame, lastLabel, bboxOverlay, callbacks: cameraCallbacks } = useCamera();
+  const { cameraFrame, lastLabel, callbacks: cameraCallbacks } = useCamera();
   const { flowStatus, nodeStates, finishing, startFlow, pauseFlow, resumeFlow, finishFlow, resetFlow } = useFlowExecution(flow, cameraCallbacks);
 
   const [selectedStep, setSelectedStep] = useState<SelectedStep | null>(null);
@@ -38,6 +52,8 @@ export function RobotControlPage() {
   const [viewMode, setViewMode] = useState<"canvas" | "panel">("canvas");
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
   const [detailDevice, setDetailDevice] = useState<Device | null>(null);
+  const [devicesOpen, setDevicesOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
 
   // Auto-connect hardware on mount
   useEffect(() => {
@@ -110,7 +126,53 @@ export function RobotControlPage() {
           </div>
         )}
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-4">
+          <Dialog open={devicesOpen} onOpenChange={setDevicesOpen}>
+            <DialogTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 forgis-text-label font-forgis-digit uppercase text-[10px] gap-2 text-[var(--gunmetal-50)] hover:text-primary transition-colors"
+              >
+                <Cpu size={14} />
+                Devices
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md h-[80vh] flex flex-col p-4 bg-card border-border">
+              <DialogHeader className="mb-4">
+                <DialogTitle>Robot Control & Devices</DialogTitle>
+              </DialogHeader>
+              <DevicesSidebar
+                selectedStep={selectedStep}
+                onDeselectStep={() => setSelectedStep(null)}
+                onParamChange={(nodeId, stepId, key, value) => updateStepParams(nodeId, stepId, { [key]: value })}
+                nodeCreatorOpen={nodeCreatorOpen}
+                onCloseNodeCreator={() => setNodeCreatorOpen(false)}
+                onOpenDeviceDetail={setDetailDevice}
+              />
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={chatOpen} onOpenChange={setChatOpen}>
+            <DialogTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 forgis-text-label font-forgis-digit uppercase text-[10px] gap-2 text-[var(--gunmetal-50)] hover:text-primary transition-colors"
+                disabled={loading}
+              >
+                <MessageSquare size={14} />
+                {loading ? "Thinking..." : "Assistant"}
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md h-[80vh] flex flex-col p-4 bg-card border-border">
+              <DialogHeader className="mb-4">
+                <DialogTitle>Forgis AI Assistant</DialogTitle>
+              </DialogHeader>
+              <CoderSidebar messages={messages} loading={loading} onSend={sendMessage} />
+            </DialogContent>
+          </Dialog>
+
           <Button
             variant="ghost"
             size="sm"
@@ -122,25 +184,22 @@ export function RobotControlPage() {
           </Button>
         </div>
       </div>
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left sidebar - Devices (idle) or minimized helper */}
-        <DevicesSidebar
-          selectedStep={selectedStep}
-          onDeselectStep={() => setSelectedStep(null)}
-          onParamChange={updateStepParams}
-          nodeCreatorOpen={nodeCreatorOpen}
-          onCloseNodeCreator={() => setNodeCreatorOpen(false)}
-          onOpenDeviceDetail={setDetailDevice}
-        />
 
+      <div className="flex flex-1 overflow-hidden relative">
         {/* Main Workspace */}
         <div className="flex-1 relative bg-[var(--background)]">
           {viewMode === "canvas" ? (
             <FlowCanvas
               flow={flow}
-              status={flowStatus}
+              flowStatus={flowStatus}
               nodeStates={nodeStates}
-              onSelectStep={(nodeId, stepId) => setSelectedStep({ nodeId, stepId })}
+              onStart={startFlow}
+              onPause={pauseFlow}
+              onResume={resumeFlow}
+              onFinish={finishFlow}
+              finishing={finishing}
+              onReset={resetFlow}
+              onSelectStep={(nodeId, step) => setSelectedStep({ nodeId, step })}
               onAddNode={() => setNodeCreatorOpen(true)}
             />
           ) : (
@@ -148,7 +207,7 @@ export function RobotControlPage() {
               flow={flow}
               nodeStates={nodeStates}
               cameraFrame={cameraFrame}
-              lastLabel={lastLabel}
+              lastLabel={lastLabel?.label || null}
             />
           )}
 
@@ -180,7 +239,7 @@ export function RobotControlPage() {
               </>
             )}
 
-            {flowStatus === "finished" && (
+            {flowStatus === ("finished" as any) && (
               <Button
                 variant="default"
                 className="h-10 px-6 rounded-xl bg-[var(--status-healthy)] hover:bg-[var(--status-healthy)]/90"
@@ -192,11 +251,6 @@ export function RobotControlPage() {
             )}
           </div>
         </div>
-
-        {/* Right sidebar - Chat/Reasoning */}
-        <div className="w-80 border-l border-border bg-card">
-          <CoderSidebar messages={messages} loading={loading} onSend={sendMessage} />
-        </div>
       </div>
       <DiagnosticDialog open={diagnosticOpen} onOpenChange={setDiagnosticOpen} />
       <DeviceDetailDialog
@@ -207,4 +261,3 @@ export function RobotControlPage() {
     </div>
   );
 }
-```

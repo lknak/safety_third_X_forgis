@@ -2,31 +2,22 @@ import { useState, useMemo } from "react";
 import { useCellAwareness } from "@/hooks/useCellAwareness";
 import { CellStateSummary } from "@/components/cell/CellStateSummary";
 import {
-    Play,
-    Pause,
-    RotateCcw,
-    CheckCircle2,
-    Eye,
-    MessageSquare,
-    ChevronRight,
-    ChevronDown,
     Activity,
-    Brain,
+    CheckCircle2,
     Timer,
     AlertCircle,
     Terminal,
     Scan,
     Maximize2
 } from "lucide-react";
-import type { Flow, NodeState } from "@/types";
-import { Badge } from "@/components/ui/badge";
+import type { Flow, NodeExecState } from "@/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { CameraFeed } from "@/components/camera/CameraFeed";
 import { cn } from "@/lib/utils";
 
 interface FlowStatePanelProps {
     flow: Flow | null;
-    nodeStates: Record<string, NodeState>;
+    nodeStates: Record<string, NodeExecState>;
     cameraFrame: string | null;
     lastLabel: string | null;
     className?: string;
@@ -152,7 +143,6 @@ export function FlowStatePanel({
                                         streaming
                                         lastLabel={lastLabel ? { label: lastLabel, version: 1 } : null}
                                         bboxOverlay={null}
-                                        className="h-full w-full object-cover"
                                     />
                                 ) : (
                                     <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground gap-3">
