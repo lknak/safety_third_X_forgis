@@ -2,7 +2,6 @@ import asyncio
 import logging
 from typing import Dict, Any, List, Optional
 from executors.base import Executor
-from ai_service import ai_service
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +18,6 @@ class HealthService:
     """
     def __init__(self, executors: Dict[str, Executor]):
         self.executors = executors
-        self._suggestions_cache: Dict[str, str] = {}
 
     async def get_overall_health(self) -> Dict[str, Any]:
         """Get the health status of all devices."""
@@ -51,26 +49,31 @@ class HealthService:
         }
 
     async def _get_suggestion(self, device_name: str, error: str) -> str:
-        """Use Gemini to get a diagnostic suggestion for a failed device."""
-        if device_name in self._suggestions_cache:
-            return self._suggestions_cache[device_name]
-            
-        prompt = f"""
-        A hardware device in an industrial robot cell has failed/disconnected.
-        Device: {device_name}
-        Error: {error}
-        
-        Provide a concise (1-2 sentences) diagnostic suggestion for the operator to fix this. 
-        Focus on common issues like power, emergency stops, or network connectivity.
-        """
-        
-        try:
-            suggestion = await ai_service.generate_text(prompt)
-            self._suggestions_cache[device_name] = suggestion.strip()
-            return self._suggestions_cache[device_name]
-        except Exception as e:
-            logger.error(f"Failed to generate diagnostic suggestion: {e}")
-            return "Check power and network connections. Ensure the device is properly initialized in ROS 2."
+        """Return deterministic troubleshooting guidance (AI diagnostics disabled)."""
+        normalized = device_name.lower()
+
+        if normalized == "robot":
+            return (
+                "Verify controller power, release e-stop/protective stop, and confirm remote/external control mode "
+                "is enabled with the correct robot IP in .env."
+            )
+        if normalized == "io_robot":
+            return (
+                "Confirm the robot driver is running and publishing IO states, then check field wiring and digital "
+                "pin mapping for this cell."
+            )
+        if normalized == "camera":
+            return (
+                "Check camera USB/network connection and restart the camera service. Verify snapshot/stream endpoints "
+                "respond before starting flow execution."
+            )
+        if normalized == "hand":
+            return (
+                "Verify hand power and IP connectivity, then retry initialization. Confirm the hand driver can read "
+                "and command finger state."
+            )
+
+        return "Check power and network connectivity for this device, then retry initialization."
 
     async def retry_initialization(self, device_name: str = None) -> bool:
         """Retry initialization for a specific device or all devices."""
@@ -78,16 +81,12 @@ class HealthService:
             if device_name in self.executors:
                 logger.info(f"Retrying initialization for {device_name}")
                 await self.executors[device_name].initialize()
-                # Clear cache on retry
-                if device_name in self._suggestions_cache:
-                    del self._suggestions_cache[device_name]
                 return self.executors[device_name].is_ready()
             return False
         else:
             logger.info("Retrying initialization for all devices")
             for name, executor in self.executors.items():
                 await executor.initialize()
-            self._suggestions_cache.clear()
             return all(e.is_ready() for e in self.executors.values())
 
 health_service: Optional[HealthService] = None

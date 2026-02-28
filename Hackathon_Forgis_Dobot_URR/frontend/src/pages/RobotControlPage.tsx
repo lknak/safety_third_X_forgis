@@ -48,37 +48,35 @@ export function RobotControlPage() {
   const [detailDevice, setDetailDevice] = useState<Device | null>(null);
 
   const [chatOpen, setChatOpen] = useState(true);
-  const [sidebarWidth, setSidebarWidth] = useState(260); // Left sidebar
-  const [rightSidebarWidth, setRightSidebarWidth] = useState(320); // Right sidebar
-  const [resizingSide, setResizingSide] = useState<"left" | "right" | null>(null);
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(260);
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(320);
+  const [isResizingLeft, setIsResizingLeft] = useState(false);
+  const [isResizingRight, setIsResizingRight] = useState(false);
   const leftSidebarRef = useRef<HTMLDivElement>(null);
   const rightSidebarRef = useRef<HTMLDivElement>(null);
 
-  const startResizing = useCallback((side: "left" | "right") => {
-    setResizingSide(side);
-  }, []);
-
+  const startResizingLeft = useCallback(() => setIsResizingLeft(true), []);
+  const startResizingRight = useCallback(() => setIsResizingRight(true), []);
   const stopResizing = useCallback(() => {
-    setResizingSide(null);
+    setIsResizingLeft(false);
+    setIsResizingRight(false);
   }, []);
 
   const resize = useCallback(
     (mouseMoveEvent: MouseEvent) => {
-      if (!resizingSide) return;
-
-      if (resizingSide === "left") {
+      if (isResizingLeft) {
         const newWidth = mouseMoveEvent.clientX;
-        if (newWidth > 200 && newWidth < 600) {
-          setSidebarWidth(newWidth);
+        if (newWidth > 180 && newWidth < 500) {
+          setLeftSidebarWidth(newWidth);
         }
-      } else if (resizingSide === "right") {
+      } else if (isResizingRight) {
         const newWidth = window.innerWidth - mouseMoveEvent.clientX;
-        if (newWidth > 250 && newWidth < 800) {
+        if (newWidth > 200 && newWidth < 800) {
           setRightSidebarWidth(newWidth);
         }
       }
     },
-    [resizingSide]
+    [isResizingLeft, isResizingRight]
   );
 
   useEffect(() => {
@@ -191,10 +189,10 @@ export function RobotControlPage() {
         {/* Left Sidebar - Devices */}
         <aside
           ref={leftSidebarRef}
-          style={{ width: `${sidebarWidth}px` }}
+          style={{ width: `${leftSidebarWidth}px` }}
           className={cn(
             "border-r border-border bg-card/40 backdrop-blur-sm p-4 flex flex-col z-10 overflow-hidden relative group shrink-0",
-            resizingSide === "left" && "select-none"
+            isResizingLeft && "select-none"
           )}
         >
           <DevicesSidebar
@@ -205,12 +203,12 @@ export function RobotControlPage() {
             onCloseNodeCreator={() => setNodeCreatorOpen(false)}
             onOpenDeviceDetail={setDetailDevice}
           />
-          {/* Resize Handle */}
+          {/* Resize Handle (Left) */}
           <div
-            onMouseDown={() => startResizing("left")}
+            onMouseDown={startResizingLeft}
             className={cn(
               "absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/40 transition-colors z-20",
-              resizingSide === "left" && "bg-primary w-1.5"
+              isResizingLeft && "bg-primary w-1.5"
             )}
           />
         </aside>
@@ -288,15 +286,15 @@ export function RobotControlPage() {
             style={{ width: `${rightSidebarWidth}px` }}
             className={cn(
               "border-l border-border bg-card/40 backdrop-blur-sm p-4 flex flex-col z-10 overflow-hidden relative group shrink-0",
-              resizingSide === "right" && "select-none"
+              isResizingRight && "select-none"
             )}
           >
-            {/* Resize Handle */}
+            {/* Resize Handle (Right) */}
             <div
-              onMouseDown={() => startResizing("right")}
+              onMouseDown={startResizingRight}
               className={cn(
                 "absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-primary/40 transition-colors z-20",
-                resizingSide === "right" && "bg-primary w-1.5"
+                isResizingRight && "bg-primary w-1.5"
               )}
             />
             <CoderSidebar messages={messages} loading={loading} onSend={sendMessage} />

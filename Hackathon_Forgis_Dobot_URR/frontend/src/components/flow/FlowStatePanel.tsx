@@ -1,6 +1,4 @@
 import { useState, useMemo } from "react";
-import { useCellAwareness } from "@/hooks/useCellAwareness";
-import { CellStateSummary } from "@/components/cell/CellStateSummary";
 import {
     Activity,
     CheckCircle2,
@@ -31,7 +29,6 @@ export function FlowStatePanel({
     className
 }: FlowStatePanelProps) {
     const [manualExpandedNodeId, setManualExpandedNodeId] = useState<string | null>(null);
-    const { summary: cellSummary, loading: inferring } = useCellAwareness(cameraFrame, !!flow);
 
     // Filter actual state nodes
     const stateNodes = useMemo(() => {
@@ -158,8 +155,33 @@ export function FlowStatePanel({
 
                             {/* Data / Reasoning / Cell Awareness Panel */}
                             <div className="col-span-2 flex flex-col gap-4 min-h-0">
-                                {/* Structured State Summary (Phase 5: Cell Awareness) */}
-                                <CellStateSummary summary={cellSummary} loading={inferring} />
+                                {/* Structured State Summary */}
+                                <div className="bg-card/50 border border-border/40 rounded-xl p-4 space-y-3">
+                                    <h3 className="forgis-text-reading font-forgis-digit uppercase tracking-wider text-[var(--gunmetal-50)]">
+                                        Vision Summary
+                                    </h3>
+                                    <div className="grid grid-cols-2 gap-4 text-[11px] font-forgis-body">
+                                        <div>
+                                            <div className="text-[9px] uppercase tracking-tighter text-muted-foreground font-forgis-digit mb-1">
+                                                Stream
+                                            </div>
+                                            <div className="text-foreground">
+                                                {cameraFrame ? "Active" : "Offline"}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div className="text-[9px] uppercase tracking-tighter text-muted-foreground font-forgis-digit mb-1">
+                                                Last Label
+                                            </div>
+                                            <div className="text-foreground">
+                                                {lastLabel || "None"}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <p className="text-[10px] text-muted-foreground font-forgis-body">
+                                        AI diagnostics are disabled. Use chat for AI-assisted analysis.
+                                    </p>
+                                </div>
 
                                 {/* Reasoning Trace (Phase 6: Detailed reasoning) */}
                                 <div className="flex-1 rounded-2xl bg-card border border-border/40 p-4 flex flex-col overflow-hidden">
@@ -167,7 +189,7 @@ export function FlowStatePanel({
                                         <Terminal size={14} /> Reasoning Trace
                                     </div>
                                     <ScrollArea className="flex-1 font-mono text-[11px] text-foreground/80 leading-relaxed pr-2">
-                                        <p className="text-primary italic opacity-70">Initializing Gemini 1.5 Flash sequence...</p>
+                                        <p className="text-primary italic opacity-70">Initializing execution timeline...</p>
                                         <p>[0ms] Analyzing scene geometry from primary sensor.</p>
                                         <p>[120ms] Detected candidate workspace features.</p>
                                         <p>[450ms] Mapping goal trajectory against kinematics constraints.</p>
