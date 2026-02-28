@@ -3,7 +3,6 @@ import {
     AlertCircle,
     CheckCircle2,
     RefreshCcw,
-    Wrench,
     ShieldCheck,
     Power
 } from "lucide-react";
@@ -73,7 +72,7 @@ export function DiagnosticDialog({ open, onOpenChange }: DiagnosticDialogProps) 
                                 System Diagnostics
                             </DialogTitle>
                             <DialogDescription className="forgis-text-detail font-forgis-body">
-                                Real-time hardware status and guided troubleshooting.
+                                Real-time hardware status and reconnect troubleshooting.
                             </DialogDescription>
                         </div>
                     </div>
@@ -117,14 +116,11 @@ export function DiagnosticDialog({ open, onOpenChange }: DiagnosticDialogProps) 
                                                 <p className="text-[11px] text-muted-foreground font-forgis-body italic">
                                                     "{data.error}"
                                                 </p>
-                                                <div className="p-3 rounded-lg bg-primary/5 border border-primary/10 flex gap-3">
-                                                    <Wrench size={14} className="text-primary shrink-0 mt-0.5" />
-                                                    <div>
-                                                        <span className="text-[10px] font-forgis-digit uppercase text-primary block mb-1">Gemini Suggestion</span>
-                                                        <p className="text-[11px] text-foreground/90 font-forgis-body leading-relaxed">
-                                                            {data.suggestion || "Initiating diagnostic analysis..."}
-                                                        </p>
-                                                    </div>
+                                                <div className="p-3 rounded-lg bg-primary/5 border border-primary/10">
+                                                    <span className="text-[10px] font-forgis-digit uppercase text-primary block mb-1">Operator Guidance</span>
+                                                    <p className="text-[11px] text-foreground/90 font-forgis-body leading-relaxed">
+                                                        {data.suggestion || "Check power, network connectivity, and driver initialization for this device."}
+                                                    </p>
                                                 </div>
                                             </div>
                                         ) : (
@@ -153,7 +149,7 @@ export function DiagnosticDialog({ open, onOpenChange }: DiagnosticDialogProps) 
                 <DialogFooter className="flex items-center justify-between border-t border-border/40 pt-4 mt-2">
                     <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-forgis-body">
                         <span className="w-1.5 h-1.5 rounded-full bg-[var(--status-healthy)] animate-pulse" />
-                        Auto-diagnostics Active
+                        Hardware diagnostics active
                     </div>
                     <div className="flex items-center gap-2">
                         <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-9 px-4 forgis-text-label font-forgis-body">

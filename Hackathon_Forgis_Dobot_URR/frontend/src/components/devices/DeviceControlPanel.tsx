@@ -151,7 +151,6 @@ function RobotControlPane({ device }: { device: Device }) {
 
   // MoveL state
   const [poseTargets, setPoseTargets] = useState<number[]>(Array(6).fill(0));
-  const [poseDirty, setPoseDirty] = useState(false);
   const [linAccel, setLinAccel] = useState(1.2);
   const [linVel, setLinVel] = useState(0.25);
 
@@ -274,10 +273,9 @@ function RobotControlPane({ device }: { device: Device }) {
       poseTargets[0] / 1000, poseTargets[1] / 1000, poseTargets[2] / 1000,
       (poseTargets[3] * Math.PI) / 180, (poseTargets[4] * Math.PI) / 180, (poseTargets[5] * Math.PI) / 180,
     ];
-    const success = await executeAction("MoveL target", async () => {
+    await executeAction("MoveL target", async () => {
       await executeRobotMoveLinearCommand(poseMetersRad, { acceleration: linAccel, velocity: linVel });
     });
-    if (success) setPoseDirty(false);
   };
 
   /* ── Digital output ── */
@@ -483,7 +481,6 @@ function RobotControlPane({ device }: { device: Device }) {
             onClick={() => {
               if (currentPose && currentPose.length === 6) {
                 setPoseTargets(currentPose.map((v) => Number(v.toFixed(1))));
-                setPoseDirty(false);
               }
             }}
           >
@@ -504,7 +501,6 @@ function RobotControlPane({ device }: { device: Device }) {
                 className="h-7 pl-7 text-[10px] font-forgis-digit"
                 onChange={(e) => {
                   const v = Number.parseFloat(e.target.value);
-                  setPoseDirty(true);
                   setPoseTargets((prev) =>
                     prev.map((p, i) => (i === index ? (Number.isNaN(v) ? p : v) : p)),
                   );

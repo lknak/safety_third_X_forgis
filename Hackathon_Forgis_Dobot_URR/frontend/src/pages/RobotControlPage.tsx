@@ -21,13 +21,6 @@ import { LINES } from "@/constants/factoryData";
 import { Button } from "@/components/ui/button";
 import { getOverallHealth } from "@/api/healthApi";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
   MessageSquare,
   ShieldCheck,
   Pause,
@@ -52,29 +45,35 @@ export function RobotControlPage() {
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
   const [detailDevice, setDetailDevice] = useState<Device | null>(null);
 
-  const [chatOpen, setChatOpen] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(260);
-  const [isResizing, setIsResizing] = useState(false);
+  const [chatOpen, setChatOpen] = useState(true); // Default to open in pane
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(260);
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(300);
+  const [isResizingLeft, setIsResizingLeft] = useState(false);
+  const [isResizingRight, setIsResizingRight] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
 
-  const startResizing = useCallback(() => {
-    setIsResizing(true);
-  }, []);
-
+  const startResizingLeft = useCallback(() => setIsResizingLeft(true), []);
+  const startResizingRight = useCallback(() => setIsResizingRight(true), []);
   const stopResizing = useCallback(() => {
-    setIsResizing(false);
+    setIsResizingLeft(false);
+    setIsResizingRight(false);
   }, []);
 
   const resize = useCallback(
     (mouseMoveEvent: MouseEvent) => {
-      if (isResizing) {
+      if (isResizingLeft) {
         const newWidth = mouseMoveEvent.clientX;
+        if (newWidth > 180 && newWidth < 500) {
+          setLeftSidebarWidth(newWidth);
+        }
+      } else if (isResizingRight) {
+        const newWidth = window.innerWidth - mouseMoveEvent.clientX;
         if (newWidth > 200 && newWidth < 600) {
-          setSidebarWidth(newWidth);
+          setRightSidebarWidth(newWidth);
         }
       }
     },
-    [isResizing]
+    [isResizingLeft, isResizingRight]
   );
 
   useEffect(() => {
@@ -157,25 +156,19 @@ export function RobotControlPage() {
           </div>
         )}
         <div className="flex items-center gap-4">
-          <Dialog open={chatOpen} onOpenChange={setChatOpen}>
-            <DialogTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 forgis-text-label font-forgis-digit uppercase text-[10px] gap-2 text-[var(--gunmetal-50)] hover:text-primary transition-colors"
-                disabled={loading}
-              >
-                <MessageSquare size={14} />
-                {loading ? "Thinking..." : "Assistant"}
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-md h-[80vh] flex flex-col p-4 bg-card border-border">
-              <DialogHeader className="mb-4">
-                <DialogTitle>Forgis AI Assistant</DialogTitle>
-              </DialogHeader>
-              <CoderSidebar messages={messages} loading={loading} onSend={sendMessage} />
-            </DialogContent>
-          </Dialog>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn(
+              "h-8 forgis-text-label font-forgis-digit uppercase text-[10px] gap-2 transition-colors",
+              chatOpen ? "text-primary" : "text-[var(--gunmetal-50)] hover:text-primary"
+            )}
+            onClick={() => setChatOpen(!chatOpen)}
+            disabled={loading}
+          >
+            <MessageSquare size={14} />
+            {loading ? "Thinking..." : "Assistant"}
+          </Button>
 
           <Button
             variant="ghost"
@@ -193,10 +186,10 @@ export function RobotControlPage() {
         {/* Left Sidebar - Devices */}
         <aside
           ref={sidebarRef}
-          style={{ width: `${sidebarWidth}px` }}
+          style={{ width: `${leftSidebarWidth}px` }}
           className={cn(
             "border-r border-border bg-card/40 backdrop-blur-sm p-4 flex flex-col z-10 overflow-hidden relative group shrink-0",
-            isResizing && "select-none"
+            isResizingLeft && "select-none"
           )}
         >
           <DevicesSidebar
@@ -207,12 +200,12 @@ export function RobotControlPage() {
             onCloseNodeCreator={() => setNodeCreatorOpen(false)}
             onOpenDeviceDetail={setDetailDevice}
           />
-          {/* Resize Handle */}
+          {/* Resize Handle (Left) */}
           <div
-            onMouseDown={startResizing}
+            onMouseDown={startResizingLeft}
             className={cn(
               "absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/40 transition-colors z-20",
-              isResizing && "bg-primary w-1.5"
+              isResizingLeft && "bg-primary w-1.5"
             )}
           />
         </aside>
@@ -282,6 +275,27 @@ export function RobotControlPage() {
             )}
           </div>
         </div>
+
+        {/* Right Sidebar - Assistant */}
+        {chatOpen && (
+          <aside
+            style={{ width: `${rightSidebarWidth}px` }}
+            className={cn(
+              "border-l border-border bg-card/40 backdrop-blur-sm p-4 flex flex-col z-10 overflow-hidden relative shrink-0",
+              isResizingRight && "select-none"
+            )}
+          >
+            {/* Resize Handle (Right) */}
+            <div
+              onMouseDown={startResizingRight}
+              className={cn(
+                "absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-primary/40 transition-colors z-20",
+                isResizingRight && "bg-primary w-1.5"
+              )}
+            />
+            <CoderSidebar messages={messages} loading={loading} onSend={sendMessage} />
+          </aside>
+        )}
       </div>
       <DiagnosticDialog open={diagnosticOpen} onOpenChange={setDiagnosticOpen} />
       <DeviceDetailDialog
