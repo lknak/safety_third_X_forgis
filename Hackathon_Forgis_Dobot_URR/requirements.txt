@@ -1,0 +1,4 @@
+numpy
+opencv-python
+# Note: rclpy and cv_bridge are typically provided by the ROS 2 system installation.
+# This venv was created with --system-site-packages to include them.
