@@ -243,13 +243,19 @@ export function RobotControlPage() {
 
         {/* Main Workspace */}
         <div className="flex-1 relative bg-[var(--background)]">
-          <GlassTileThread
-            orderedTiles={orderedTiles}
-            heroTile={activeTile}
-            activeNodeName={activeNodeName}
-            liveText={liveText}
-            onInspectTile={inspectTile}
-          />
+          {activeFlowId ? (
+            <GlassTileThread
+              orderedTiles={orderedTiles}
+              heroTile={activeTile}
+              activeNodeName={activeNodeName}
+              liveText={liveText}
+              onInspectTile={inspectTile}
+            />
+          ) : (
+            <div className="h-full flex items-center justify-center text-center px-6 text-muted-foreground forgis-text-label font-forgis-body">
+              Cell manager mode active. Device/status answers appear in the chat panel on the right.
+            </div>
+          )}
 
           {autoplayBlocked && (
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 bg-card border border-[var(--status-warning)] rounded-xl px-4 py-2 flex items-center gap-3">

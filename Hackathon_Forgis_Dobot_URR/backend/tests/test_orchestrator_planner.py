@@ -40,6 +40,13 @@ class MicroGemini:
         }
 
 
+class IntentGemini:
+    async def generate_json(self, prompt: str, model=None):
+        if "is the camera connected?" in prompt:
+            return {"route": "CELL_MANAGER", "reason": "status query"}
+        return {"route": "ORCHESTRATE", "reason": "execution request"}
+
+
 @pytest.mark.asyncio
 async def test_planner_builds_primitive_node_order_for_static_tasks():
     planner = OrchestratorPlanner(StaticGemini())
@@ -102,3 +109,12 @@ async def test_plan_next_step_returns_micro_plan_and_nodes():
     assert nodes[0].type == NodeType.DEPTH_ESTIMATION
     assert nodes[1].type == NodeType.ESTIMATE_GRASP_POSE
     assert nodes[2].type == NodeType.SUCTION_ON
+
+
+@pytest.mark.asyncio
+async def test_planner_uses_model_to_route_orchestrator_vs_cell_manager():
+    planner = OrchestratorPlanner(IntentGemini())
+    cell_state = {"robot": {"ready": True}, "camera": {"ready": True}}
+
+    assert await planner.should_orchestrate("is the camera connected?", cell_state) is False
+    assert await planner.should_orchestrate("pick the red box and place it in zone A", cell_state) is True

@@ -165,6 +165,13 @@ class OrchestratorEngine:
         """Classify whether a message is an actionable robot task."""
         return OrchestratorPlanner.looks_like_robot_task(instruction)
 
+    async def should_orchestrate_task(self, instruction: str) -> bool:
+        """Model-based routing decision for orchestrator vs cell-manager mode."""
+        return await self._planner.should_orchestrate(
+            instruction=instruction,
+            cell_state=self._cell_state_snapshot(),
+        )
+
     async def build_cell_manager_reply(self, query: str) -> str:
         """
         Answer general cell questions conversationally using current runtime status.

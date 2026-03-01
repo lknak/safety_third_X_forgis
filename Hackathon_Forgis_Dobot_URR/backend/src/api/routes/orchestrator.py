@@ -155,7 +155,12 @@ async def create_task(request: OrchestratorTaskRequest):
     engine = _get_engine()
     instruction = request.instruction.strip()
 
-    if not engine.is_actionable_task(instruction):
+    if hasattr(engine, "should_orchestrate_task"):
+        actionable = await engine.should_orchestrate_task(instruction)  # type: ignore[attr-defined]
+    else:
+        actionable = engine.is_actionable_task(instruction)
+
+    if not actionable:
         queue_depth = (await engine.get_state_snapshot()).queue_depth
         reply = await engine.build_cell_manager_reply(instruction)
         return OrchestratorTaskResponse(

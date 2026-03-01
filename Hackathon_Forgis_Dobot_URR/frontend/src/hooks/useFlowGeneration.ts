@@ -21,9 +21,16 @@ export function useFlowGeneration() {
 
     try {
       const result = await createOrchestratorTask(content);
-      setActiveFlowId(result.flow_id ?? null);
-      if (result.preview_flow) {
-        setFlow(layoutFlow(result.preview_flow as unknown as Flow));
+
+      if (result.mode === "cell_manager") {
+        // Keep cell-manager replies in chat only; clear orchestrator timeline.
+        setActiveFlowId(null);
+        setFlow(null);
+      } else {
+        setActiveFlowId(result.flow_id ?? null);
+        if (result.preview_flow) {
+          setFlow(layoutFlow(result.preview_flow as unknown as Flow));
+        }
       }
 
       const assistantMsg: ChatMessage = {

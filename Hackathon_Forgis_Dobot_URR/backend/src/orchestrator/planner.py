@@ -104,7 +104,7 @@ class OrchestratorPlanner:
 
     async def plan(self, instruction: str, cell_state: dict[str, Any]) -> PlanResult:
         """Create initial plan.  Decides static vs agentic based on intent."""
-        if not self._looks_like_robot_task(instruction):
+        if not await self.should_orchestrate(instruction, cell_state):
             raise ValueError(NON_ACTIONABLE_TASK_MESSAGE)
 
         # Fast-path: jog commands → always static
@@ -302,6 +302,38 @@ Cell state: {json.dumps(cell_state, default=str)}
     # ═══════════════════════════════════════════════════════════════════════
     #  Intent detection
     # ═══════════════════════════════════════════════════════════════════════
+
+    async def should_orchestrate(self, instruction: str, cell_state: dict[str, Any]) -> bool:
+        """Model-based intent router: decide if this message should trigger orchestration."""
+        text = (instruction or "").strip()
+        if not text:
+            return False
+
+        prompt = f"""You are an intent router for a robotics control UI.
+Decide whether the message should trigger robot orchestration or be answered conversationally by the cell manager.
+
+Return STRICT JSON only:
+{{"route": "ORCHESTRATE" | "CELL_MANAGER", "reason": "short reason"}}
+
+Routing rules:
+- ORCHESTRATE: The user asks for physical robot action, perception task execution, or a procedural workflow.
+- CELL_MANAGER: The user asks for status, diagnostics, health, connectivity, explanations, troubleshooting, or general conversation.
+
+User message: {text!r}
+Cell state: {json.dumps(cell_state, default=str)}
+"""
+        try:
+            raw = await self._gemini.generate_json(prompt)
+            route = str(raw.get("route", "")).strip().upper()
+            if route == "ORCHESTRATE":
+                return True
+            if route == "CELL_MANAGER":
+                return False
+        except Exception as exc:
+            logger.warning("Gemini intent routing failed (%s), using heuristic fallback", exc)
+
+        # Conservative fallback if the classifier is unavailable.
+        return self._looks_like_robot_task(text)
 
     @staticmethod
     def _looks_like_robot_task(instruction: str) -> bool:
