@@ -5,11 +5,18 @@ import glob
 import json
 import argparse
 
-# Paths inside Docker
-CALIBRATION_DIR = "/app/src/data/calibration"
+# Paths inside Docker or Local
+import os
+import sys
+
+_base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
+if not os.path.exists(_base_dir) and os.path.exists("/app/src/data"):
+    _base_dir = "/app/src/data"
+
+CALIBRATION_DIR = os.path.join(_base_dir, "calibration")
 INTRINSIC_DIR = os.path.join(CALIBRATION_DIR, "intrinsic")
 EXTRINSIC_DIR = os.path.join(CALIBRATION_DIR, "extrinsic")
-OUTPUT_DIR = "/app/src/data"
+OUTPUT_DIR = _base_dir
 
 def run_intrinsic():
     print("--- Running Intrinsic Calibration Calculation ---")

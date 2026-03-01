@@ -62,36 +62,29 @@ def main():
             elif key == ord('q'): return
 
     elif args.mode == "extrinsic":
-        print("1. Click 4 points on the table in the camera feed.")
-        print("2. For each point, manually enter the Robot Coordinates (X, Y, Z) from the Teach Pendant.")
+        print("1. Click the 4 points in the camera feed in this exact order:")
+        print("   Pt 1: (lb) | Pt 2: (rb) | Pt 3: (rf) | Pt 4: (lf)")
+        
+        # User provided robot coordinates for these points (X, Y, Z in mm)
+        PROVIDED_ROBOT_POSES = [
+            [329.52, 89.90, -250.83],  # Point 1 (lb)
+            [469.58, 215.19, -250.83], # Point 2 (rb)
+            [651.61, 32.57, -250.84],  # Point 3 (rf)
+            [523.14, -93.66, -250.82]  # Point 4 (lf)
+        ]
         
         clicked_pts = []
-        robot_poses = []
 
         def on_mouse(event, x, y, flags, param):
             if event == cv2.EVENT_LBUTTONDOWN and len(clicked_pts) < 4:
                 clicked_pts.append([x, y])
-                print(f"\nLocked Pixel {len(clicked_pts)}: ({x}, {y})")
+                print(f"Locked Pixel {len(clicked_pts)}: ({x}, {y}) -> Robot: {PROVIDED_ROBOT_POSES[len(clicked_pts)-1]}")
                 
-                # Prompt for robot coordinates immediately after clicking
-                while True:
-                    try:
-                        inp = input(f"Enter Robot X,Y,Z (mm) for Pt {len(clicked_pts)} (e.g. 350.5, -120, 15.2): ")
-                        coords = [float(v.strip()) for v in inp.split(",")]
-                        if len(coords) == 3:
-                            robot_poses.append(coords)
-                            print(f"Captured Point {len(robot_poses)}: Pixel={clicked_pts[-1]}, Robot={coords}")
-                            break
-                        else:
-                            print("Error: Please enter exactly 3 values (X, Y, Z).")
-                    except ValueError:
-                        print("Error: Invalid numbers. Please use format: X, Y, Z")
-
-                if len(robot_poses) == 4:
+                if len(clicked_pts) == 4:
                     # Save extrinsic data to shared JSON
                     data = {
                         "pixels": clicked_pts,
-                        "robot_poses": robot_poses
+                        "robot_poses": PROVIDED_ROBOT_POSES
                     }
                     json_path = os.path.join(EXTRINSIC_DIR, "extrinsic_data.json")
                     with open(json_path, 'w') as f:
@@ -103,7 +96,7 @@ def main():
         cv2.namedWindow("Extrinsic Capture")
         cv2.setMouseCallback("Extrinsic Capture", on_mouse)
 
-        while len(robot_poses) < 4:
+        while len(clicked_pts) < 4:
             ret, frame = cap.read()
             if not ret: continue
             
@@ -117,8 +110,9 @@ def main():
 
     cap.release()
     cv2.destroyAllWindows()
-    print("\nTriggering Docker math processing...")
-    subprocess.run(["docker", "exec", "forgis-backend", "python3", "/app/src/scripts/calibration_math.py", "--mode", args.mode])
+    print("\nTriggering math processing...")
+    math_script = os.path.join("backend", "src", "scripts", "calibration_math.py")
+    subprocess.run([sys.executable, math_script, "--mode", args.mode])
 
 if __name__ == "__main__":
     main()
