@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import threading
@@ -9,7 +10,7 @@ from rclpy.executors import MultiThreadedExecutor
 
 from api.app import create_app
 from api.websocket import WebSocketManager
-from executors import IOExecutor, RobotExecutor, CameraExecutor, HandExecutor, DobotNova5Executor
+from executors import IOExecutor, RobotExecutor, CameraExecutor, HandExecutor, DobotNova5Executor, PhysicalAiExecutor
 from flow.manager import FlowManager
 from orchestrator.engine import OrchestratorEngine
 from health_service import init_health_service
@@ -23,6 +24,7 @@ import skills.robot  # noqa: F401
 import skills.io  # noqa: F401
 import skills.camera  # noqa: F401
 import skills.hand  # noqa: F401
+import skills.ai  # noqa: F401
 
 # Configure logging
 logging.basicConfig(
@@ -71,11 +73,13 @@ def main():
     # Camera and hand executors (always present)
     camera_executor = CameraExecutor(camera, ws_manager)
     hand_executor = HandExecutor(hand)
+    physical_ai_executor = PhysicalAiExecutor(camera)
 
     executors = {
         "robot": robot_executor,
         "camera": camera_executor,
         "hand": hand_executor,
+        "physical_ai_node": physical_ai_executor,
     }
     if io_robot_executor is not None:
         executors["io_robot"] = io_robot_executor
@@ -115,6 +119,7 @@ def main():
         camera_executor,
         io_robot_executor,
         hand_executor,
+        physical_ai_executor
     )
 
     # ROS 2 executor with nodes
