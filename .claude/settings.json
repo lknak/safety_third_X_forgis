@@ -23,7 +23,10 @@
       "Bash(docker compose --profile ur down)",
       "Bash(docker compose --profile ur up -d)",
       "Bash(python3 -m json.tool)",
-      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:80)"
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:80)",
+      "Bash(curl -s http://localhost:8000/api/skills)",
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); [print\\(f''  - {s[\"\"name\"\"]}: {s[\"\"description\"\"]}''\\) for s in data[''skills'']]\")",
+      "Bash(curl -s -X POST http://localhost:8000/api/orchestrator/tasks -H \"Content-Type: application/json\" -d '{\"\"instruction\"\": \"\"move every joint by 5 degrees\"\"}')"
     ]
   }
 }

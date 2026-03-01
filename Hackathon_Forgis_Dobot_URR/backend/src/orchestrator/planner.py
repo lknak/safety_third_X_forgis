@@ -30,8 +30,19 @@ ACTION_VERBS = (
     "unload",
     "palletize",
     "label",
+    "jog",
+    "rotate",
+    "nudge",
 )
 ACTION_VERB_PATTERN = re.compile(r"\b(" + "|".join(ACTION_VERBS) + r")\b")
+
+# Detect jog / rotate joint commands (separate from pick-place pipeline)
+_JOG_PATTERN = re.compile(
+    r"\b(?:jog|rotate|nudge)\b.*\b(?:joint|axis|j[0-5]|degree|deg)\b"
+    r"|\b(?:move|turn)\b.*\b(?:joint|axis|j[0-5])\b.*\b(?:degree|deg|°)\b"
+    r"|\b(?:move|turn)\b.*\bevery\s+joint\b",
+    re.IGNORECASE,
+)
 
 
 class OrchestratorPlanner:
@@ -44,6 +55,10 @@ class OrchestratorPlanner:
         """Create initial plan from raw instruction and current cell state."""
         if not self._looks_like_robot_task(instruction):
             raise ValueError(NON_ACTIONABLE_TASK_MESSAGE)
+
+        # Fast-path: jog / rotate joint commands skip the full vision pipeline.
+        if self._is_jog_command(instruction):
+            return await self._plan_jog(instruction)
 
         prompt = f"""
 You are a robotics orchestrator planner.
@@ -127,6 +142,107 @@ Rules:
     @classmethod
     def looks_like_robot_task(cls, instruction: str) -> bool:
         return cls._looks_like_robot_task(instruction)
+
+    @staticmethod
+    def _is_jog_command(instruction: str) -> bool:
+        """Detect jog/rotate joint commands."""
+        return bool(_JOG_PATTERN.search(instruction or ""))
+
+    async def _plan_jog(self, instruction: str) -> PlanResult:
+        """Plan a jog command by asking Gemini to extract joint offsets."""
+        prompt = f"""
+You are a robotics joint-jog parser.
+The robot has 6 joints: j0 (base), j1 (shoulder), j2 (elbow), j3 (wrist1), j4 (wrist2), j5 (wrist3).
+Return STRICT JSON with keys:
+- offsets_deg: array of 6 floats, the relative offset in degrees for each joint.
+  Use 0 for joints that should not move.
+- velocity: float 0.1-2.0 (default 0.5)
+- acceleration: float 0.1-2.0 (default 0.5)
+
+Instruction: {instruction!r}
+
+Rules:
+- Parse the instruction to determine which joints to move and by how much.
+- "every joint" or "all joints" means all 6 joints get the same offset.
+- Positive = counter-clockwise, negative = clockwise.
+- Clamp each offset to [-45, 45] degrees for safety.
+- Return only JSON, no explanation.
+
+Examples:
+- "move every joint by 5 degrees" -> {{"offsets_deg": [5,5,5,5,5,5], "velocity": 0.5, "acceleration": 0.5}}
+- "rotate joint 3 by -10 degrees" -> {{"offsets_deg": [0,0,0,-10,0,0], "velocity": 0.5, "acceleration": 0.5}}
+- "jog j0 and j1 by 15 deg" -> {{"offsets_deg": [15,15,0,0,0,0], "velocity": 0.5, "acceleration": 0.5}}
+"""
+        try:
+            raw = await self._gemini.generate_json(prompt)
+        except Exception:
+            logger.warning("Gemini failed to parse jog command, using regex fallback")
+            raw = self._fallback_jog_parse(instruction)
+
+        offsets = raw.get("offsets_deg", [0, 0, 0, 0, 0, 0])
+        if not isinstance(offsets, list) or len(offsets) != 6:
+            offsets = [0, 0, 0, 0, 0, 0]
+
+        # Clamp safety
+        offsets = [max(-45, min(45, float(o))) for o in offsets]
+
+        velocity = float(raw.get("velocity", 0.5))
+        acceleration = float(raw.get("acceleration", 0.5))
+
+        payload = {
+            "instruction": instruction,
+            "offsets_deg": offsets,
+            "velocity": velocity,
+            "acceleration": acceleration,
+        }
+
+        nodes = [
+            NodePlan(
+                name="jog_joints",
+                type=NodeType.JOG_JOINTS_NODE,
+                payload=payload,
+                timeout_ms=20000,
+            ),
+            NodePlan(
+                name="summary",
+                type=NodeType.SUMMARY_NODE,
+                payload={},
+                timeout_ms=10000,
+            ),
+        ]
+
+        return PlanResult(
+            subgoals=[{"id": "jog_1", "type": "jog_joints", "instruction": instruction}],
+            assumptions=[f"Jog offsets: {offsets} deg"],
+            nodes=nodes,
+        )
+
+    @staticmethod
+    def _fallback_jog_parse(instruction: str) -> dict[str, Any]:
+        """Regex fallback when Gemini is unavailable."""
+        lower = instruction.lower()
+
+        # Extract degree value
+        deg_match = re.search(r"(-?\d+(?:\.\d+)?)\s*(?:degree|deg|°)", lower)
+        deg_val = float(deg_match.group(1)) if deg_match else 5.0
+        deg_val = max(-45, min(45, deg_val))
+
+        # Check for "every" / "all" joints
+        if re.search(r"\b(?:every|all)\s+joint", lower):
+            return {"offsets_deg": [deg_val] * 6, "velocity": 0.5, "acceleration": 0.5}
+
+        # Check for specific joint references
+        offsets = [0.0] * 6
+        for m in re.finditer(r"\bj(?:oint)?\s*(\d)", lower):
+            idx = int(m.group(1))
+            if 0 <= idx <= 5:
+                offsets[idx] = deg_val
+
+        # If no specific joints matched, apply to all
+        if all(o == 0 for o in offsets):
+            offsets = [deg_val] * 6
+
+        return {"offsets_deg": offsets, "velocity": 0.5, "acceleration": 0.5}
 
     @staticmethod
     def _fallback_subgoal(instruction: str) -> dict[str, Any]:

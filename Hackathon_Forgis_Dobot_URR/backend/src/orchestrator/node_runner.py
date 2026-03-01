@@ -74,6 +74,8 @@ class NodeRunner:
                 artifacts, status = await self._run_live_node(plan, context)
             elif plan.type == NodeType.VERIFICATION_NODE:
                 artifacts, status = await self._run_verification_node(plan, context)
+            elif plan.type == NodeType.JOG_JOINTS_NODE:
+                artifacts, status = await self._run_jog_joints_node(plan, context)
             elif plan.type == NodeType.SUMMARY_NODE:
                 artifacts = await self._run_summary_node(context)
             else:
@@ -485,6 +487,61 @@ Return JSON only.
             },
         )
         return record
+
+    async def _run_jog_joints_node(
+        self,
+        plan: NodePlan,
+        context: dict[str, Any],
+    ) -> tuple[dict[str, Any], NodeResultStatus]:
+        """Execute a jog-joints command using the robot executor."""
+        import math
+
+        robot = self._executors.get("robot")
+        if robot is None or not hasattr(robot, "is_ready"):
+            return {"error": "Robot executor unavailable"}, NodeResultStatus.FAILURE
+        if not robot.is_ready():
+            return {"error": "Robot executor not ready"}, NodeResultStatus.FAILURE
+
+        offsets_deg = plan.payload.get("offsets_deg", [0, 0, 0, 0, 0, 0])
+        velocity = float(plan.payload.get("velocity", 0.5))
+        acceleration = float(plan.payload.get("acceleration", 0.5))
+
+        current_deg = robot.get_joint_positions_deg()
+        if current_deg is None:
+            return {"error": "Cannot read current joint positions"}, NodeResultStatus.FAILURE
+
+        target_deg = [cur + off for cur, off in zip(current_deg, offsets_deg)]
+
+        # Safety clamp
+        for i, d in enumerate(target_deg):
+            if not -360.0 <= d <= 360.0:
+                return {
+                    "error": f"Joint {i} target {d:.1f} deg outside [-360, 360]",
+                }, NodeResultStatus.FAILURE
+
+        target_rad = [math.radians(d) for d in target_deg]
+        tolerance_rad = math.radians(1.0)
+
+        success = await robot.jog_joint(
+            target_rad=target_rad,
+            acceleration=acceleration,
+            velocity=velocity,
+            tolerance_rad=tolerance_rad,
+        )
+
+        artifacts = {
+            "instruction": plan.payload.get("instruction", ""),
+            "previous_deg": [round(d, 2) for d in current_deg],
+            "offsets_deg": offsets_deg,
+            "target_deg": [round(d, 2) for d in target_deg],
+            "motion_status": "completed" if success else "failed",
+        }
+
+        context.setdefault("robot_results", {})["jog"] = artifacts
+
+        if success:
+            return artifacts, NodeResultStatus.SUCCESS
+        return artifacts, NodeResultStatus.FAILURE
 
     async def _run_verification_node(
         self,
