@@ -1,0 +1,147 @@
+{
+  "flow_id": "flow_0f3fc68569",
+  "state_transitions": [],
+  "nodes": [
+    {
+      "name": "input",
+      "type": "INPUT_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772371586.7362468,
+      "end_time": 1772371586.7363856,
+      "artifacts": {
+        "raw_instruction": "can you rotate one of your random joint by 10 degrees?",
+        "timestamp": 1772371586.7363842,
+        "cell_state": {
+          "robot": {
+            "ready": true
+          },
+          "camera": {
+            "ready": true
+          },
+          "hand": {
+            "ready": true
+          },
+          "physical_ai_node": {
+            "ready": true
+          },
+          "io_robot": {
+            "ready": true
+          }
+        }
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "planner",
+      "type": "ORCHESTRATOR_PLANNER_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772371586.794932,
+      "end_time": 1772371588.7171817,
+      "artifacts": {
+        "subgoals": [
+          {
+            "id": "jog_1",
+            "skill": "jog_joints",
+            "description": "can you rotate one of your random joint by 10 degrees?"
+          }
+        ],
+        "assumptions": [
+          "Jog offsets: [0.0, 0.0, 10.0, 0.0, 0.0, 0.0] deg"
+        ],
+        "plan_mode": "STATIC",
+        "reasoning": "Jog offsets: [0.0, 0.0, 10.0, 0.0, 0.0, 0.0] deg",
+        "ordered_node_list": [
+          {
+            "name": "step_1_jog_joints",
+            "type": "JOG_JOINTS",
+            "timeout_ms": 30000
+          },
+          {
+            "name": "summary",
+            "type": "SUMMARY_NODE",
+            "timeout_ms": 10000
+          }
+        ]
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "step_1_jog_joints",
+      "type": "JOG_JOINTS",
+      "status": "SUCCESS",
+      "start_time": 1772371588.7512958,
+      "end_time": 1772371589.909778,
+      "artifacts": {
+        "skill_name": "jog_joints_primitive",
+        "description": "can you rotate one of your random joint by 10 degrees?",
+        "result": {
+          "previous_deg": [
+            36.32,
+            -95.03,
+            -116.24,
+            -51.01,
+            83.72,
+            -53.49
+          ],
+          "offsets_deg": [
+            0.0,
+            0.0,
+            10.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "target_deg": [
+            36.32,
+            -95.03,
+            -106.24,
+            -51.01,
+            83.72,
+            -53.49
+          ],
+          "reached": true
+        }
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "summary",
+      "type": "SUMMARY_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772371589.9595635,
+      "end_time": 1772371589.9597352,
+      "artifacts": {
+        "requested_task": "can you rotate one of your random joint by 10 degrees?",
+        "planned_steps": [
+          "step_1_jog_joints",
+          "summary"
+        ],
+        "step_outcomes": [
+          {
+            "name": "input",
+            "type": "INPUT_NODE",
+            "status": "SUCCESS"
+          },
+          {
+            "name": "planner",
+            "type": "ORCHESTRATOR_PLANNER_NODE",
+            "status": "SUCCESS"
+          },
+          {
+            "name": "step_1_jog_joints",
+            "type": "JOG_JOINTS",
+            "status": "SUCCESS"
+          }
+        ],
+        "deviations": [],
+        "observations": []
+      },
+      "timeout_ms": 10000
+    }
+  ],
+  "final_status": "SUCCESS",
+  "instruction": "can you rotate one of your random joint by 10 degrees?",
+  "started_at": 1772371586.7290547,
+  "completed_at": 1772371590.0029833,
+  "error_message": null
+}

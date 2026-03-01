@@ -1,0 +1,157 @@
+{
+  "flow_id": "flow_8e68e57cb9",
+  "state_transitions": [],
+  "nodes": [
+    {
+      "name": "input",
+      "type": "INPUT_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772371671.6581373,
+      "end_time": 1772371671.6583445,
+      "artifacts": {
+        "raw_instruction": "can you toggle your digital 2 pin",
+        "timestamp": 1772371671.6583424,
+        "cell_state": {
+          "robot": {
+            "ready": true
+          },
+          "camera": {
+            "ready": true
+          },
+          "hand": {
+            "ready": true
+          },
+          "physical_ai_node": {
+            "ready": true
+          },
+          "io_robot": {
+            "ready": true
+          }
+        }
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "planner",
+      "type": "ORCHESTRATOR_PLANNER_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772371671.7290552,
+      "end_time": 1772371678.2546527,
+      "artifacts": {
+        "subgoals": [
+          {
+            "id": "step_1",
+            "skill": "set_digital_output",
+            "description": "Set digital pin 2 to HIGH as the first part of the toggle action."
+          },
+          {
+            "id": "step_2",
+            "skill": "set_digital_output",
+            "description": "Set digital pin 2 to LOW, completing the toggle action."
+          }
+        ],
+        "assumptions": [
+          "Toggle implies setting the digital output pin HIGH, then setting it LOW to complete the toggle action.",
+          "The 'verify_outcome' skill, being for visual verification, is not applicable for non-visual digital I/O operations."
+        ],
+        "plan_mode": "STATIC",
+        "reasoning": "Toggle implies setting the digital output pin HIGH, then setting it LOW to complete the toggle action.; The 'verify_outcome' skill, being for visual verification, is not applicable for non-visual digital I/O operations.",
+        "ordered_node_list": [
+          {
+            "name": "step_1_set_digital_output",
+            "type": "SET_DIGITAL_OUTPUT",
+            "timeout_ms": 30000
+          },
+          {
+            "name": "step_2_set_digital_output",
+            "type": "SET_DIGITAL_OUTPUT",
+            "timeout_ms": 30000
+          },
+          {
+            "name": "summary",
+            "type": "SUMMARY_NODE",
+            "timeout_ms": 10000
+          }
+        ]
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "step_1_set_digital_output",
+      "type": "SET_DIGITAL_OUTPUT",
+      "status": "SUCCESS",
+      "start_time": 1772371678.2730896,
+      "end_time": 1772371678.4605963,
+      "artifacts": {
+        "skill_name": "set_digital_output",
+        "description": "Set digital pin 2 to HIGH as the first part of the toggle action.",
+        "result": {
+          "pin": 2,
+          "value": true
+        }
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "step_2_set_digital_output",
+      "type": "SET_DIGITAL_OUTPUT",
+      "status": "SUCCESS",
+      "start_time": 1772371678.4726648,
+      "end_time": 1772371678.6685722,
+      "artifacts": {
+        "skill_name": "set_digital_output",
+        "description": "Set digital pin 2 to LOW, completing the toggle action.",
+        "result": {
+          "pin": 2,
+          "value": false
+        }
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "summary",
+      "type": "SUMMARY_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772371678.6859915,
+      "end_time": 1772371678.6860256,
+      "artifacts": {
+        "requested_task": "can you toggle your digital 2 pin",
+        "planned_steps": [
+          "step_1_set_digital_output",
+          "step_2_set_digital_output",
+          "summary"
+        ],
+        "step_outcomes": [
+          {
+            "name": "input",
+            "type": "INPUT_NODE",
+            "status": "SUCCESS"
+          },
+          {
+            "name": "planner",
+            "type": "ORCHESTRATOR_PLANNER_NODE",
+            "status": "SUCCESS"
+          },
+          {
+            "name": "step_1_set_digital_output",
+            "type": "SET_DIGITAL_OUTPUT",
+            "status": "SUCCESS"
+          },
+          {
+            "name": "step_2_set_digital_output",
+            "type": "SET_DIGITAL_OUTPUT",
+            "status": "SUCCESS"
+          }
+        ],
+        "deviations": [],
+        "observations": []
+      },
+      "timeout_ms": 10000
+    }
+  ],
+  "final_status": "SUCCESS",
+  "instruction": "can you toggle your digital 2 pin",
+  "started_at": 1772371671.651427,
+  "completed_at": 1772371678.7183473,
+  "error_message": null
+}

@@ -12,10 +12,16 @@ services:
     ipc: host
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    ports:
+      - "50001:50001"    # UR reverse_port
+      - "50002:50002"    # UR script_sender_port
+      - "50003:50003"    # UR trajectory_port
+      - "50004:50004"    # UR script_command_port
     environment:
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
       - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
       - FASTRTPS_DEFAULT_PROFILES_FILE=/app/fastdds.xml
+      - REVERSE_IP=${REVERSE_IP:-0.0.0.0}
     env_file: .env
     volumes:
       - ./assets/fastdds_driver.xml:/app/fastdds.xml:ro
@@ -61,7 +67,8 @@ services:
       - CAMERA_IMAGE_TOPIC=${CAMERA_IMAGE_TOPIC:-/image_raw}
       - CAMERA_BRIDGE_HOST=${CAMERA_BRIDGE_HOST:-host.docker.internal}
       - CAMERA_BRIDGE_PORT=${CAMERA_BRIDGE_PORT:-8765}
-      - ROBOT_TCP_OFFSET=${ROBOT_TCP_OFFSET:-0,0,0.055,0,0,0}
+      - ROBOT_TCP_OFFSET=${ROBOT_TCP_OFFSET:-0,0,0,0,0,0}
+      - ROBOT_JOINT_STATE_TIMEOUT_S=${ROBOT_JOINT_STATE_TIMEOUT_S:-5.0}
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
       - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
       - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2024-02-15-preview}

@@ -1,0 +1,51 @@
+{
+  "flow_id": "flow_c25349eb83",
+  "state_transitions": [],
+  "nodes": [
+    {
+      "name": "input",
+      "type": "INPUT_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772369175.0657415,
+      "end_time": 1772369175.065909,
+      "artifacts": {
+        "raw_instruction": "pick the strawberry bar and put it in the box",
+        "timestamp": 1772369175.0659072,
+        "cell_state": {
+          "robot": {
+            "ready": true
+          },
+          "camera": {
+            "ready": true
+          },
+          "hand": {
+            "ready": true
+          },
+          "physical_ai_node": {
+            "ready": true
+          },
+          "io_robot": {
+            "ready": true
+          }
+        }
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "planner",
+      "type": "ORCHESTRATOR_PLANNER_NODE",
+      "status": "TIMEOUT",
+      "start_time": 1772369205.1260254,
+      "end_time": 1772369205.1260254,
+      "artifacts": {
+        "error": "Node timed out after 30000ms"
+      },
+      "timeout_ms": 30000
+    }
+  ],
+  "final_status": "FAILURE",
+  "instruction": "pick the strawberry bar and put it in the box",
+  "started_at": 1772369175.0509393,
+  "completed_at": 1772369205.126361,
+  "error_message": "Node timed out after 30000ms"
+}

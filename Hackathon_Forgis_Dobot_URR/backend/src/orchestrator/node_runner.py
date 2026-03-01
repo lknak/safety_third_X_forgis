@@ -47,6 +47,7 @@ _NODE_TO_SKILL: dict[NodeType, str] = {
     NodeType.WAIT_DIGITAL_INPUT: "wait_digital_input",
     NodeType.WAIT: "wait",
     NodeType.VERIFY_OUTCOME: "verify_outcome",
+    NodeType.POINT_TO_OBJECT: "point_to_object",
 }
 
 

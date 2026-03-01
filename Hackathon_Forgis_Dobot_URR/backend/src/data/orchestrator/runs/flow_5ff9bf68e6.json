@@ -1,0 +1,126 @@
+{
+  "flow_id": "flow_5ff9bf68e6",
+  "state_transitions": [],
+  "nodes": [
+    {
+      "name": "input",
+      "type": "INPUT_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772371615.1667435,
+      "end_time": 1772371615.1668084,
+      "artifacts": {
+        "raw_instruction": "can you commentate on what you are seeing?",
+        "timestamp": 1772371615.1668074,
+        "cell_state": {
+          "robot": {
+            "ready": true
+          },
+          "camera": {
+            "ready": true
+          },
+          "hand": {
+            "ready": true
+          },
+          "physical_ai_node": {
+            "ready": true
+          },
+          "io_robot": {
+            "ready": true
+          }
+        }
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "planner",
+      "type": "ORCHESTRATOR_PLANNER_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772371615.324661,
+      "end_time": 1772371623.8364072,
+      "artifacts": {
+        "subgoals": [
+          {
+            "id": "step_1",
+            "skill": "live_narrate",
+            "description": "Generate a concise, real-time commentary sentence about the current scene based on the camera feed, fulfilling the user's request to commentate on what is being seen."
+          }
+        ],
+        "assumptions": [
+          "The `live_narrate` skill will automatically capture the necessary visual context to generate a commentary."
+        ],
+        "plan_mode": "STATIC",
+        "reasoning": "The `live_narrate` skill will automatically capture the necessary visual context to generate a commentary.",
+        "ordered_node_list": [
+          {
+            "name": "step_1_live_narrate",
+            "type": "LIVE_NARRATE",
+            "timeout_ms": 30000
+          },
+          {
+            "name": "summary",
+            "type": "SUMMARY_NODE",
+            "timeout_ms": 10000
+          }
+        ]
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "step_1_live_narrate",
+      "type": "LIVE_NARRATE",
+      "status": "SUCCESS",
+      "start_time": 1772371623.841029,
+      "end_time": 1772371626.9380193,
+      "artifacts": {
+        "skill_name": "live_narrate",
+        "description": "Generate a concise, real-time commentary sentence about the current scene based on the camera feed, fulfilling the user's request to commentate on what is being seen.",
+        "result": {
+          "commentary_text": "A robotic arm is positioned over an open cardboard box on a workbench.",
+          "audio_chunk_b64": "QSByb2JvdGljIGFybSBpcyBwb3NpdGlvbmVkIG92ZXIgYW4gb3BlbiBjYXJkYm9hcmQgYm94IG9uIGEgd29ya2JlbmNoLg==",
+          "had_visual_context": true,
+          "model_path": "live"
+        }
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "summary",
+      "type": "SUMMARY_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772371626.9584901,
+      "end_time": 1772371626.958527,
+      "artifacts": {
+        "requested_task": "can you commentate on what you are seeing?",
+        "planned_steps": [
+          "step_1_live_narrate",
+          "summary"
+        ],
+        "step_outcomes": [
+          {
+            "name": "input",
+            "type": "INPUT_NODE",
+            "status": "SUCCESS"
+          },
+          {
+            "name": "planner",
+            "type": "ORCHESTRATOR_PLANNER_NODE",
+            "status": "SUCCESS"
+          },
+          {
+            "name": "step_1_live_narrate",
+            "type": "LIVE_NARRATE",
+            "status": "SUCCESS"
+          }
+        ],
+        "deviations": [],
+        "observations": []
+      },
+      "timeout_ms": 10000
+    }
+  ],
+  "final_status": "SUCCESS",
+  "instruction": "can you commentate on what you are seeing?",
+  "started_at": 1772371615.1360385,
+  "completed_at": 1772371626.9916673,
+  "error_message": null
+}

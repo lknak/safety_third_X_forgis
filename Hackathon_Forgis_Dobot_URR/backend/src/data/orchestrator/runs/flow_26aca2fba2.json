@@ -1,0 +1,127 @@
+{
+  "flow_id": "flow_26aca2fba2",
+  "state_transitions": [],
+  "nodes": [
+    {
+      "name": "input",
+      "type": "INPUT_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772370412.0517516,
+      "end_time": 1772370412.052076,
+      "artifacts": {
+        "raw_instruction": "can you commentate on whats happening in the scene?",
+        "timestamp": 1772370412.052074,
+        "cell_state": {
+          "robot": {
+            "ready": true
+          },
+          "camera": {
+            "ready": true
+          },
+          "hand": {
+            "ready": true
+          },
+          "physical_ai_node": {
+            "ready": true
+          },
+          "io_robot": {
+            "ready": true
+          }
+        }
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "planner",
+      "type": "ORCHESTRATOR_PLANNER_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772370412.1330626,
+      "end_time": 1772370414.7575312,
+      "artifacts": {
+        "subgoals": [
+          {
+            "id": "step_1",
+            "skill": "live_narrate",
+            "description": "Start real-time visual commentary of the current scene using the camera feed and Gemini ER to describe what is happening."
+          }
+        ],
+        "assumptions": [
+          "The robot's camera is providing a clear view of the scene.",
+          "The 'live_narrate' skill is capable of understanding and describing dynamic elements if the scene is active."
+        ],
+        "plan_mode": "STATIC",
+        "reasoning": "The robot's camera is providing a clear view of the scene.; The 'live_narrate' skill is capable of understanding and describing dynamic elements if the scene is active.",
+        "ordered_node_list": [
+          {
+            "name": "step_1_live_narrate",
+            "type": "LIVE_NARRATE",
+            "timeout_ms": 30000
+          },
+          {
+            "name": "summary",
+            "type": "SUMMARY_NODE",
+            "timeout_ms": 10000
+          }
+        ]
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "step_1_live_narrate",
+      "type": "LIVE_NARRATE",
+      "status": "SUCCESS",
+      "start_time": 1772370414.765616,
+      "end_time": 1772370418.1220922,
+      "artifacts": {
+        "skill_name": "live_narrate",
+        "description": "Start real-time visual commentary of the current scene using the camera feed and Gemini ER to describe what is happening.",
+        "result": {
+          "commentary_text": "A robotic arm is positioned with its end-effector inside an open cardboard box, over another smaller box.",
+          "audio_chunk_b64": "QSByb2JvdGljIGFybSBpcyBwb3NpdGlvbmVkIHdpdGggaXRzIGVuZC1lZmZlY3RvciBpbnNpZGUgYW4gb3BlbiBjYXJkYm9hcmQgYm94LCBvdmVyIGFub3RoZXIgc21hbGxlciBib3gu",
+          "had_visual_context": true,
+          "model_path": "live"
+        }
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "summary",
+      "type": "SUMMARY_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772370418.1402235,
+      "end_time": 1772370418.140271,
+      "artifacts": {
+        "requested_task": "can you commentate on whats happening in the scene?",
+        "planned_steps": [
+          "step_1_live_narrate",
+          "summary"
+        ],
+        "step_outcomes": [
+          {
+            "name": "input",
+            "type": "INPUT_NODE",
+            "status": "SUCCESS"
+          },
+          {
+            "name": "planner",
+            "type": "ORCHESTRATOR_PLANNER_NODE",
+            "status": "SUCCESS"
+          },
+          {
+            "name": "step_1_live_narrate",
+            "type": "LIVE_NARRATE",
+            "status": "SUCCESS"
+          }
+        ],
+        "deviations": [],
+        "observations": []
+      },
+      "timeout_ms": 10000
+    }
+  ],
+  "final_status": "SUCCESS",
+  "instruction": "can you commentate on whats happening in the scene?",
+  "started_at": 1772370412.0313842,
+  "completed_at": 1772370418.1558561,
+  "error_message": null
+}

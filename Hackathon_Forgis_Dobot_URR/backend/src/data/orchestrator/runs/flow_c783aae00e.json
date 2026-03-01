@@ -1,0 +1,51 @@
+{
+  "flow_id": "flow_c783aae00e",
+  "state_transitions": [],
+  "nodes": [
+    {
+      "name": "input",
+      "type": "INPUT_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772369038.4790552,
+      "end_time": 1772369038.4790988,
+      "artifacts": {
+        "raw_instruction": "move the arm a little to the right",
+        "timestamp": 1772369038.4790983,
+        "cell_state": {
+          "robot": {
+            "ready": true
+          },
+          "camera": {
+            "ready": true
+          },
+          "hand": {
+            "ready": true
+          },
+          "physical_ai_node": {
+            "ready": true
+          },
+          "io_robot": {
+            "ready": true
+          }
+        }
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "planner",
+      "type": "ORCHESTRATOR_PLANNER_NODE",
+      "status": "TIMEOUT",
+      "start_time": 1772369068.496532,
+      "end_time": 1772369068.496532,
+      "artifacts": {
+        "error": "Node timed out after 30000ms"
+      },
+      "timeout_ms": 30000
+    }
+  ],
+  "final_status": "FAILURE",
+  "instruction": "move the arm a little to the right",
+  "started_at": 1772369038.4787934,
+  "completed_at": 1772369068.4968145,
+  "error_message": "Node timed out after 30000ms"
+}

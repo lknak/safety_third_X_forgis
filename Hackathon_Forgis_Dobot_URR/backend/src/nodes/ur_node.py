@@ -49,7 +49,7 @@ class RobotNode(Node):
         self._joint_positions: Optional[dict] = None
         self._last_joint_update_monotonic: float = 0.0
         self._joint_state_timeout_s: float = float(
-            os.environ.get("ROBOT_JOINT_STATE_TIMEOUT_S", "2.0")
+            os.environ.get("ROBOT_JOINT_STATE_TIMEOUT_S", "5.0")
         )
         self.create_subscription(JointState, "/joint_states", self._on_joint_states, 10)
 
@@ -69,8 +69,7 @@ class RobotNode(Node):
         )
 
         # TCP configuration from environment (format: "x,y,z,rx,ry,rz" in meters and radians)
-        # Default: 55mm Z offset (0.055 meters)
-        tcp_str = os.environ.get("ROBOT_TCP_OFFSET", "0,0,0.055,0,0,0")
+        tcp_str = os.environ.get("ROBOT_TCP_OFFSET", "0,0,0,0,0,0")
         self._tcp_offset: List[float] = [float(v.strip()) for v in tcp_str.split(",")]
         self.get_logger().info(f"TCP offset configured: {self._tcp_offset}")
 
@@ -172,30 +171,25 @@ class RobotNode(Node):
 
     def resend_robot_program(self) -> bool:
         """
-        Must be called after send_script() / send_movej() / send_movel()
-        once the robot has finished executing the script.
+        Restore External Control after a URScript has finished executing.
+
+        Uses fire-and-forget (non-blocking) so it never blocks the asyncio
+        event loop.  The ROS MultiThreadedExecutor processes the response
+        callback in its own thread; we do not need to wait for it since
+        motion has already completed before this is called.
+
+        Returns True if the service call was dispatched, False if the
+        service is not yet available.
         """
         if not self._resend_client.service_is_ready():
-            self.get_logger().warn("resend_robot_program service not available")
+            self.get_logger().warn(
+                "resend_robot_program: service not yet ready — External Control "
+                "will be restored automatically when the UR program finishes"
+            )
             return False
 
-        future = self._resend_client.call_async(Trigger.Request())
-
-        # Wait for the result — the MultiThreadedExecutor handles the callback
-        t0 = time.monotonic()
-        while not future.done() and time.monotonic() - t0 < 5.0:
-            time.sleep(0.1)
-
-        if not future.done():
-            self.get_logger().error("resend_robot_program timed out")
-            return False
-
-        result = future.result()
-        if not result.success:
-            self.get_logger().warn(f"resend_robot_program failed: {result.message}")
-            return False
-
-        self.get_logger().info("Robot program resent — control restored")
+        self._resend_client.call_async(Trigger.Request())
+        self.get_logger().info("resend_robot_program dispatched (non-blocking)")
         return True
 
     def joints_at_target(self, target_rad: List[float], tolerance: float = 0.02) -> bool:
@@ -224,12 +218,22 @@ class RobotNode(Node):
         )
 
     def is_connected(self) -> bool:
-        # Motion control only requires fresh joint data and the control service.
-        # IO states are checked separately when needed (get_digital_input, etc.).
-        return (
-            self._has_fresh_joint_state()
-            and self._has_control_service()
-        )
+        """True when the robot is publishing live joint states.
+
+        Only requires fresh joint data — the resend service may become
+        available later (after the UR driver finishes its boot sequence)
+        without causing a false "disconnected" reading.
+        The service is checked separately in resend_robot_program().
+        """
+        return self._has_fresh_joint_state()
+
+    def is_fully_operational(self) -> bool:
+        """True when both joint data is live AND the resend service is ready.
+
+        Use this before commanding motion if you want to verify the full
+        control loop is in place.
+        """
+        return self._has_fresh_joint_state() and self._has_control_service()
 
     def get_joint_positions(self) -> Optional[List[float]]:
         if not self.is_connected():

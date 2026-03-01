@@ -11,7 +11,26 @@
       "Bash(powershell -Command \"Get-NetTCPConnection -LocalPort 8765 -ErrorAction SilentlyContinue | Format-Table\")",
       "Bash(tasklist)",
       "Bash(powershell -Command \"Get-Process python* -ErrorAction SilentlyContinue | Select-Object Id,ProcessName,CommandLine | Format-Table -AutoSize\")",
-      "Bash(python -c \":*)"
+      "Bash(python -c \":*)",
+      "Bash(docker compose up --build -d)",
+      "Read(//dev/**)",
+      "Bash(docker exec ur-driver bash -c \"source /opt/ros/humble/setup.bash && ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_fastrtps_cpp FASTRTPS_DEFAULT_PROFILES_FILE=/app/fastdds.xml ros2 service list 2>&1 | grep -i controller\")",
+      "Bash(docker exec ur-driver bash -c \"source /opt/ros/humble/setup.bash && ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_fastrtps_cpp FASTRTPS_DEFAULT_PROFILES_FILE=/app/fastdds.xml ros2 topic list 2>&1 | grep -E ''joint_states|tcp_pose|io_and''\")",
+      "Bash(docker exec forgis-backend bash -c \"source /opt/ros/humble/setup.bash && ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_fastrtps_cpp FASTRTPS_DEFAULT_PROFILES_FILE=/app/fastdds.xml timeout 5 ros2 topic echo /joint_states --once 2>&1\")",
+      "Bash(docker exec forgis-backend bash -c \"curl -s http://localhost:8000/api/health\")",
+      "Bash(docker exec forgis-backend bash -c \"curl -s http://localhost:8000/api/robot/status\")",
+      "Bash(docker exec ur-driver bash -c \"source /opt/ros/humble/setup.bash && ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_fastrtps_cpp timeout 3 ros2 topic hz /joint_states 2>&1\")",
+      "Bash(docker exec ur-driver bash -c \"source /opt/ros/humble/setup.bash && ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_fastrtps_cpp FASTRTPS_DEFAULT_PROFILES_FILE=/app/fastdds.xml timeout 5 ros2 topic echo /joint_states --once 2>&1\")",
+      "Bash(docker exec ur-driver bash -c \"source /opt/ros/humble/setup.bash && ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_fastrtps_cpp FASTRTPS_DEFAULT_PROFILES_FILE=/app/fastdds.xml timeout 8 ros2 control list_controllers 2>&1\")",
+      "Bash(docker exec ur-driver bash -c \"source /opt/ros/humble/setup.bash && ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_fastrtps_cpp FASTRTPS_DEFAULT_PROFILES_FILE=/app/fastdds.xml timeout 8 ros2 service call /controller_manager/list_controllers controller_manager_msgs/srv/ListControllers 2>&1\")",
+      "Bash(docker exec ur-driver bash -c \"cat /app/scripts/start_driver.sh\")",
+      "Bash(docker compose restart ur-driver backend)",
+      "Bash(docker compose restart backend)",
+      "Bash(docker exec forgis-backend pkill -f \"uvicorn\\\\|gunicorn\\\\|python\")",
+      "Bash(docker ps --filter name=forgis-backend --format \"{{.Status}}\")",
+      "Bash(docker compose restart)",
+      "Bash(docker ps --format \"{{.Names}}\\\\t{{.Status}}\")",
+      "Bash(docker exec ur-driver bash -c \"rm -f /dev/shm/fastrtps_* /dev/shm/sem.* 2>/dev/null; ls /dev/shm/ 2>/dev/null || echo ''shm cleared''\")"
     ]
   }
 }

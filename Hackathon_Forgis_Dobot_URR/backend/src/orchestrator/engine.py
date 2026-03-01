@@ -58,7 +58,7 @@ class OrchestratorEngine:
         self._store = FlowRunStore(runs_dir=runs_dir, retention=retention)
 
         self._gemini = OrchestratorGeminiClient()
-        self._planner = OrchestratorPlanner(self._gemini)
+        self._planner = OrchestratorPlanner(self._gemini, runs_dir=runs_dir)
         self._safe_z_config = self._load_safe_z_config(safe_z_config_path)
         self._runner = NodeRunner(
             executors=executors,
@@ -471,6 +471,10 @@ class OrchestratorEngine:
 
         run.final_status = "SUCCESS"
         run.completed_at = time.time()
+
+        # In-context learning: store successful plans as exemplars
+        self._save_exemplar(run)
+
         self._emit(
             "orchestrator_run_completed",
             {
@@ -555,6 +559,10 @@ class OrchestratorEngine:
 
                 run.final_status = "SUCCESS"
                 run.completed_at = time.time()
+
+                # In-context learning: store successful agentic plans as exemplars
+                self._save_exemplar(run)
+
                 self._emit(
                     "orchestrator_run_completed",
                     {
@@ -896,6 +904,26 @@ class OrchestratorEngine:
             if plan.name == node_name:
                 return dict(plan.payload)
         return {}
+
+    def _save_exemplar(self, run: FlowRunRecord) -> None:
+        """Extract skill sequence from a successful run and store as exemplar."""
+        try:
+            skill_sequence = [
+                {
+                    "skill": node.artifacts.get("skill_name", ""),
+                    "description": node.artifacts.get("description", ""),
+                }
+                for node in run.nodes
+                if node.artifacts.get("skill_name")
+            ]
+            if skill_sequence:
+                self._planner.add_exemplar(
+                    instruction=run.instruction,
+                    skill_sequence=skill_sequence,
+                    run_id=run.flow_id,
+                )
+        except Exception as exc:
+            logger.debug("Could not save exemplar for %s: %s", run.flow_id, exc)
 
     async def _finalize_failed_run(self, run: FlowRunRecord, record: FlowRunNodeRecord) -> None:
         run.final_status = "FAILURE"

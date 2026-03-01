@@ -27,27 +27,46 @@ class RobotExecutor(Executor):
         self._motion_poll_interval = 0.1  # seconds
 
     async def initialize(self) -> None:
-        """Wait for robot connection and set TCP."""
-        logger.info("RobotExecutor initializing...")
-        timeout = 10.0
+        """Wait for robot connection and set TCP.
+
+        Polls for up to 30 s so that slow UR driver starts don't cause a
+        false "not connected" result.  Logs progress every 5 s to make it
+        easy to diagnose ROBOT_IP / network issues.
+        """
+        import os
+        robot_ip = os.environ.get("ROBOT_IP", "?")
+        logger.info("RobotExecutor: waiting for joint states from UR driver (ROBOT_IP=%s)...", robot_ip)
+        timeout = 30.0
         elapsed = 0.0
-        while self._robot.get_joint_positions() is None and elapsed < timeout:
-            await asyncio.sleep(0.1)
-            elapsed += 0.1
-        if self._robot.get_joint_positions() is None:
-            logger.warning("Robot joint positions not available after timeout")
+        while not self._robot._has_fresh_joint_state() and elapsed < timeout:
+            await asyncio.sleep(0.5)
+            elapsed += 0.5
+            if elapsed % 5.0 < 0.6:
+                logger.info("RobotExecutor: still waiting... (%.0f s elapsed)", elapsed)
+
+        if not self._robot._has_fresh_joint_state():
+            logger.warning(
+                "RobotExecutor: no joint states after %.0f s — "
+                "verify ROBOT_IP=%s is reachable and the UR driver is running",
+                timeout, robot_ip,
+            )
         else:
-            # Set TCP offset once connected
             self._robot.set_tcp()
-            logger.info("RobotExecutor ready (TCP configured)")
+            logger.info("RobotExecutor ready — TCP configured, robot live")
 
     async def shutdown(self) -> None:
         """No cleanup needed - RobotNode lifecycle managed elsewhere."""
         pass
 
     def is_ready(self) -> bool:
-        """Check if robot is connected (has joint positions)."""
-        return self._robot.get_joint_positions() is not None
+        """True when the robot is publishing live joint states.
+
+        Uses the fresh-joint-state check directly rather than the stricter
+        is_connected() gate (which also requires the resend service).
+        This prevents false "disconnected" readings while the UR driver
+        service is still coming up after boot.
+        """
+        return self._robot._has_fresh_joint_state()
 
     async def move_joint(
         self,
@@ -75,15 +94,46 @@ class RobotExecutor(Executor):
         # Send the motion command (interrupts External Control)
         self._robot.send_movej(target_rad, accel=acceleration, vel=velocity)
 
+        # Brief settle so the UR has time to accept the script before we poll.
+        await asyncio.sleep(0.3)
+
         # Poll until target reached or timeout
         elapsed = 0.0
+        prev_joints: Optional[list[float]] = None
+        stable_count = 0
+        stable_threshold = 5
+
         while elapsed < timeout:
-            if self._robot.joints_at_target(target_rad, tolerance=tolerance_rad):
-                logger.info("RobotExecutor: Target reached")
-                # Restore External Control
-                await asyncio.sleep(0.2)  # Brief delay before resend
-                self._robot.resend_robot_program()
-                return True
+            current = self._get_raw_joint_positions()
+
+            if current is not None:
+                # Primary check: joints at target
+                if all(abs(c - t) < tolerance_rad for c, t in zip(current, target_rad)):
+                    logger.info("RobotExecutor: Target reached")
+                    await asyncio.sleep(0.2)
+                    self._robot.resend_robot_program()
+                    return True
+
+                # Stability fallback
+                if prev_joints is not None:
+                    max_diff = max(abs(c - p) for c, p in zip(current, prev_joints))
+                    if max_diff < 0.001:
+                        stable_count += 1
+                        if stable_count >= stable_threshold:
+                            max_err = max(abs(c - t) for c, t in zip(current, target_rad))
+                            if max_err < tolerance_rad * 3:
+                                logger.info(
+                                    "RobotExecutor: Target reached (stable, max_err=%.4f rad)",
+                                    max_err,
+                                )
+                                await asyncio.sleep(0.2)
+                                self._robot.resend_robot_program()
+                                return True
+                    else:
+                        stable_count = 0
+
+                prev_joints = list(current)
+
             await asyncio.sleep(self._motion_poll_interval)
             elapsed += self._motion_poll_interval
 
@@ -114,6 +164,9 @@ class RobotExecutor(Executor):
 
         self._robot.send_movel(pose, accel=acceleration, vel=velocity)
 
+        # Brief settle so the UR has time to accept the script before we poll.
+        await asyncio.sleep(0.3)
+
         # Wait for motion to complete by detecting when joints stop moving
         elapsed = 0.0
         prev_joints = None
@@ -124,7 +177,7 @@ class RobotExecutor(Executor):
             await asyncio.sleep(self._motion_poll_interval)
             elapsed += self._motion_poll_interval
 
-            current_joints = self._robot.get_joint_positions()
+            current_joints = self._get_raw_joint_positions()
             if current_joints is None:
                 continue
 
@@ -147,28 +200,96 @@ class RobotExecutor(Executor):
         self._robot.resend_robot_program()
         return False
 
+    def _get_raw_joint_positions(self) -> Optional[list[float]]:
+        """Read joint positions bypassing the strict is_connected() gate.
+
+        During primary-script execution the RTDE stream can drop briefly,
+        which makes is_connected() return False.  For motion-completion
+        polling we only need the cached joint values (they are still updated
+        by the subscription callback even if the freshness check fails).
+        """
+        jp = self._robot._joint_positions
+        if jp is None:
+            return None
+        try:
+            from nodes.ur_node import JOINT_NAMES
+            return [jp[name] for name in JOINT_NAMES]
+        except (KeyError, TypeError):
+            return None
+
     async def jog_joint(
         self,
         target_rad: list[float],
         acceleration: float = 1.4,
         velocity: float = 1.05,
         tolerance_rad: float = 0.02,
-        timeout: float = 15.0,
+        timeout: float = 30.0,
     ) -> bool:
         """
-        Jog to a nearby target. Uses primary script (same as move_joint)
-        because secondary scripts cannot override the active trajectory controller.
+        Jog to a nearby target using a primary movej script.
+
+        Completion is detected with a two-tier strategy:
+        1. **Target check** — joints within *tolerance_rad* of target (fast exit).
+        2. **Stability check** — joints stop moving for several consecutive
+           polls (fallback when RTDE briefly reconnects and the cached
+           positions are stale enough for the freshness gate to fail).
+
+        Both tiers read the raw cached joint positions, bypassing the strict
+        ``is_connected()`` gate that can return ``None`` during the transient
+        period after a primary URScript replaces External Control.
         """
         logger.info(f"RobotExecutor: Jog to {target_rad}")
         self._robot.send_movej(target_rad, accel=acceleration, vel=velocity)
 
+        # Brief settle so the UR has time to accept the script before we poll.
+        await asyncio.sleep(0.3)
+
         elapsed = 0.0
+        prev_joints: Optional[list[float]] = None
+        stable_count = 0
+        stable_threshold = 5  # ~0.5 s of no movement → done
+
         while elapsed < timeout:
-            if self._robot.joints_at_target(target_rad, tolerance=tolerance_rad):
-                logger.info("RobotExecutor: Jog complete")
-                await asyncio.sleep(0.2)
-                self._robot.resend_robot_program()
-                return True
+            current = self._get_raw_joint_positions()
+
+            if current is not None:
+                # Tier-1: exact target check
+                if all(abs(c - t) < tolerance_rad for c, t in zip(current, target_rad)):
+                    logger.info("RobotExecutor: Jog complete (target reached)")
+                    await asyncio.sleep(0.2)
+                    self._robot.resend_robot_program()
+                    return True
+
+                # Tier-2: stability check (joints stopped moving)
+                if prev_joints is not None:
+                    max_diff = max(abs(c - p) for c, p in zip(current, prev_joints))
+                    if max_diff < 0.001:  # <0.06 deg movement between polls
+                        stable_count += 1
+                        if stable_count >= stable_threshold:
+                            # Joints are stable — check if we're *reasonably*
+                            # close to the target so we don't report success
+                            # when the robot never actually moved.
+                            max_err = max(abs(c - t) for c, t in zip(current, target_rad))
+                            if max_err < tolerance_rad * 5:
+                                logger.info(
+                                    "RobotExecutor: Jog complete (stable, max_err=%.4f rad)",
+                                    max_err,
+                                )
+                                await asyncio.sleep(0.2)
+                                self._robot.resend_robot_program()
+                                return True
+                            else:
+                                logger.warning(
+                                    "RobotExecutor: Jog — joints stable but far from target "
+                                    "(max_err=%.4f rad). Robot may not have executed the command.",
+                                    max_err,
+                                )
+                                break
+                    else:
+                        stable_count = 0
+
+                prev_joints = list(current)
+
             await asyncio.sleep(self._motion_poll_interval)
             elapsed += self._motion_poll_interval
 
@@ -193,3 +314,19 @@ class RobotExecutor(Executor):
     def get_state_summary(self) -> dict:
         """Get robot state summary."""
         return self._robot.get_state_summary()
+
+    def get_connection_status(self) -> dict:
+        """Detailed connection diagnostics for health checks."""
+        has_joints = self._robot._has_fresh_joint_state()
+        has_service = self._robot._has_control_service()
+        joint_age = None
+        if self._robot._joint_positions is not None:
+            import time
+            joint_age = round(time.monotonic() - self._robot._last_joint_update_monotonic, 2)
+        return {
+            "has_fresh_joint_state": has_joints,
+            "has_control_service": has_service,
+            "joint_state_age_s": joint_age,
+            "joint_state_timeout_s": self._robot._joint_state_timeout_s,
+            "fully_operational": has_joints and has_service,
+        }

@@ -56,6 +56,9 @@ class NodeType(str, Enum):
     WAIT = "WAIT"
     VERIFY_OUTCOME = "VERIFY_OUTCOME"
 
+    # Compound skills
+    POINT_TO_OBJECT = "POINT_TO_OBJECT"
+
     # Legacy aliases (for backward compatibility with existing flows)
     ER_1_5_ANALYSIS_NODE = "ER_1_5_ANALYSIS_NODE"
     DEPTH_ESTIMATION_NODE = "DEPTH_ESTIMATION_NODE"

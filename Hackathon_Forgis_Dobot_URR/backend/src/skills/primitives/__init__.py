@@ -17,6 +17,7 @@ from .capture_image import CaptureImageSkill
 from .analyze_scene import AnalyzeSceneSkill
 from .estimate_grasp_pose import EstimateGraspPoseSkill
 from .plan_trajectory import PlanTrajectorySkill
+from .point_to_object import PointToObjectSkill
 
 # Reasoning
 from .llm_reason import LLMReasonSkill
@@ -48,6 +49,7 @@ __all__ = [
     "LiveNarrateSkill",
     "MoveToPoseSkill",
     "ExecuteXYActionSkill",
+    "PointToObjectSkill",
     "MoveJointsSkill",
     "JogJointsPrimitiveSkill",
     "GetRobotStateSkill",
@@ -162,6 +164,23 @@ PRIMITIVE_SKILL_CATALOG = [
         "returns": "start/end mapped poses, reached, z_motion_allowed=false",
         "use_when": "Immediately after plan_trajectory for planar XY execution.",
         "avoid_when": "Do not use before plan_trajectory output is available; does not perform Z motion.",
+    },
+    {
+        "name": "point_to_object",
+        "layer": "motion",
+        "description": "Use Gemini ER 1.5 to detect an object, then move the robot to its XY position (Z/orientation locked).",
+        "params": {
+            "object_description": "str - natural-language description of the target object",
+            "image_b64": "optional - auto-captured if omitted",
+            "frame_width": "int (default 1920)",
+            "frame_height": "int (default 1080)",
+            "velocity": "float (default 0.12)",
+            "acceleration": "float (default 0.6)",
+            "reference_pose": "optional [x,y,z,rx,ry,rz] for Z/orientation lock",
+        },
+        "returns": "er_point_yx, pixel_xy, target_pose_commanded, reached, annotated_image_b64",
+        "use_when": "User says 'point to', 'go to', or 'move to' a described object. Combines ER detection + XY motion in one step.",
+        "avoid_when": "Do not use for trajectory planning with multiple waypoints — use plan_trajectory + execute_xy_action instead.",
     },
     {
         "name": "move_joints",

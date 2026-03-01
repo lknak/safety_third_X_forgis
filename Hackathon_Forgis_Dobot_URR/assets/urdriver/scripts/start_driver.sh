@@ -25,7 +25,8 @@ except Exception as e:
 sleep 2
 
 ros2 launch ur_robot_driver ur_control.launch.py \
-  ur_type:="${UR_TYPE:-ur3}" \
+  ur_type:="${UR_TYPE:-ur5e}" \
   robot_ip:="${ROBOT_IP}" \
+  reverse_ip:="${REVERSE_IP:-0.0.0.0}" \
   launch_rviz:=false \
   headless_mode:=true

@@ -130,8 +130,21 @@ class OrchestratorGeminiClient:
 
         try:
             return json.loads(cleaned)
-        except Exception as exc:
-            raise GeminiClientError(f"Gemini ER returned non-JSON payload: {cleaned[:200]}") from exc
+        except Exception:
+            pass
+
+        # Fallback: find the outermost JSON object or array in the response
+        for start_char, end_char in (('{', '}'), ('[', ']')):
+            start = cleaned.find(start_char)
+            end = cleaned.rfind(end_char)
+            if start != -1 and end > start:
+                candidate = cleaned[start:end + 1]
+                try:
+                    return json.loads(candidate)
+                except Exception:
+                    pass
+
+        raise GeminiClientError(f"Gemini ER returned non-JSON payload: {cleaned[:200]}")
 
     async def er_trajectory(
         self,

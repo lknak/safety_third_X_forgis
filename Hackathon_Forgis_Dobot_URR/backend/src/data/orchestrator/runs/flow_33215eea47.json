@@ -1,0 +1,99 @@
+{
+  "flow_id": "flow_33215eea47",
+  "state_transitions": [],
+  "nodes": [
+    {
+      "name": "input",
+      "type": "INPUT_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772370235.1908739,
+      "end_time": 1772370235.1909475,
+      "artifacts": {
+        "raw_instruction": "can you point the pretzel",
+        "timestamp": 1772370235.1909466,
+        "cell_state": {
+          "robot": {
+            "ready": true
+          },
+          "camera": {
+            "ready": true
+          },
+          "hand": {
+            "ready": true
+          },
+          "physical_ai_node": {
+            "ready": true
+          },
+          "io_robot": {
+            "ready": true
+          }
+        }
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "planner",
+      "type": "ORCHESTRATOR_PLANNER_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772370235.2963233,
+      "end_time": 1772370239.2870462,
+      "artifacts": {
+        "subgoals": [
+          {
+            "id": "step_1",
+            "skill": "point_to_object",
+            "description": "Detect the 'pretzel' in the current scene using visual AI and move the robot's end effector to point towards its XY location."
+          },
+          {
+            "id": "step_2",
+            "skill": "verify_outcome",
+            "description": "Visually verify that the robot's end effector is accurately pointing at the 'pretzel' as instructed."
+          }
+        ],
+        "assumptions": [
+          "The 'pretzel' is present and clearly visible in the robot's camera view.",
+          "The robot's end effector can reach the XY location of the pretzel."
+        ],
+        "plan_mode": "STATIC",
+        "reasoning": "The 'pretzel' is present and clearly visible in the robot's camera view.; The robot's end effector can reach the XY location of the pretzel.",
+        "ordered_node_list": [
+          {
+            "name": "step_1_point_to_object",
+            "type": "POINT_TO_OBJECT",
+            "timeout_ms": 45000
+          },
+          {
+            "name": "step_2_verify_outcome",
+            "type": "VERIFY_OUTCOME",
+            "timeout_ms": 30000
+          },
+          {
+            "name": "summary",
+            "type": "SUMMARY_NODE",
+            "timeout_ms": 10000
+          }
+        ]
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "step_1_point_to_object",
+      "type": "POINT_TO_OBJECT",
+      "status": "FAILURE",
+      "start_time": 1772370239.3066187,
+      "end_time": 1772370243.2005022,
+      "artifacts": {
+        "skill_name": "point_to_object",
+        "description": "Detect the 'pretzel' in the current scene using visual AI and move the robot's end effector to point towards its XY location.",
+        "result": {},
+        "error": "Gemini ER 1.5 pointing failed: Gemini ER returned non-JSON payload: {{\"point\": [887, 375], \"label\": \"pretzel\"}}"
+      },
+      "timeout_ms": 45000
+    }
+  ],
+  "final_status": "ABORTED",
+  "instruction": "can you point the pretzel",
+  "started_at": 1772370235.174909,
+  "completed_at": 1772370247.5369918,
+  "error_message": "Gemini ER 1.5 pointing failed: Gemini ER returned non-JSON payload: {{\"point\": [887, 375], \"label\": \"pretzel\"}}"
+}

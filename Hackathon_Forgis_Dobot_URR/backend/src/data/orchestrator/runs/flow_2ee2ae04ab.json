@@ -1,0 +1,134 @@
+{
+  "flow_id": "flow_2ee2ae04ab",
+  "state_transitions": [],
+  "nodes": [
+    {
+      "name": "input",
+      "type": "INPUT_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772363897.8383512,
+      "end_time": 1772363897.8387852,
+      "artifacts": {
+        "raw_instruction": "can you move a random joint by 10 degrees",
+        "timestamp": 1772363897.8387835,
+        "cell_state": {
+          "robot": {
+            "ready": true
+          },
+          "camera": {
+            "ready": true
+          },
+          "hand": {
+            "ready": true
+          },
+          "physical_ai_node": {
+            "ready": true
+          },
+          "io_robot": {
+            "ready": true
+          }
+        }
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "planner",
+      "type": "ORCHESTRATOR_PLANNER_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772363897.9082918,
+      "end_time": 1772363902.5882246,
+      "artifacts": {
+        "subgoals": [
+          {
+            "id": "step_1",
+            "skill": "jog_joints",
+            "description": "Jog the first joint (J0) by 10 degrees."
+          },
+          {
+            "id": "step_2",
+            "skill": "live_narrate",
+            "description": "Narrate the robot's joint movement."
+          },
+          {
+            "id": "step_3",
+            "skill": "verify_outcome",
+            "description": "Verify that the joint movement was successful."
+          }
+        ],
+        "assumptions": [
+          "Moving 'a random joint' by 10 degrees will be interpreted as moving the first joint (J0) by +10 degrees."
+        ],
+        "plan_mode": "STATIC",
+        "reasoning": "Moving 'a random joint' by 10 degrees will be interpreted as moving the first joint (J0) by +10 degrees.",
+        "ordered_node_list": [
+          {
+            "name": "step_1_jog_joints",
+            "type": "JOG_JOINTS",
+            "timeout_ms": 30000
+          },
+          {
+            "name": "step_2_live_narrate",
+            "type": "LIVE_NARRATE",
+            "timeout_ms": 30000
+          },
+          {
+            "name": "step_3_verify_outcome",
+            "type": "VERIFY_OUTCOME",
+            "timeout_ms": 30000
+          },
+          {
+            "name": "summary",
+            "type": "SUMMARY_NODE",
+            "timeout_ms": 10000
+          }
+        ]
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "step_1_jog_joints",
+      "type": "JOG_JOINTS",
+      "status": "FAILURE",
+      "start_time": 1772363902.5979989,
+      "end_time": 1772363922.0513978,
+      "artifacts": {
+        "skill_name": "jog_joints_primitive",
+        "description": "Jog the first joint (J0) by 10 degrees.",
+        "result": {
+          "previous_deg": [
+            -26.33,
+            -63.23,
+            -141.26,
+            -68.18,
+            92.49,
+            -116.46
+          ],
+          "offsets_deg": [
+            10.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "target_deg": [
+            -16.33,
+            -63.23,
+            -141.26,
+            -68.18,
+            92.49,
+            -116.46
+          ],
+          "reached": false
+        },
+        "error": "Jog motion failed or timed out"
+      },
+      "timeout_ms": 30000
+    }
+  ],
+  "final_status": "TIMEOUT",
+  "instruction": "can you move a random joint by 10 degrees",
+  "started_at": 1772363897.7487864,
+  "completed_at": 1772363967.0971494,
+  "error_message": "Clarification timeout after failure in step_1_jog_joints"
+}
