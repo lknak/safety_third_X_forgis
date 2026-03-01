@@ -1,9 +1,9 @@
 """Primitive skills - the minimal generalist skill set for the orchestrator.
 
-16 skills across 5 layers:
+17 skills across 5 layers:
   Perception:  capture_image, analyze_scene, estimate_grasp_pose, plan_trajectory
   Reasoning:   llm_reason, live_narrate
-  Motion:      move_to_pose, move_joints, jog_joints, get_robot_state
+  Motion:      move_to_pose, execute_xy_action, move_joints, jog_joints, get_robot_state
   Actuation:   suction_on, suction_off, set_digital_output, wait_digital_input
   Flow:        wait, verify_outcome
 
@@ -24,6 +24,7 @@ from .live_narrate import LiveNarrateSkill
 
 # Motion
 from .move_to_pose import MoveToPoseSkill
+from .execute_xy_action import ExecuteXYActionSkill
 from .move_joints import MoveJointsSkill
 from .jog_joints import JogJointsPrimitiveSkill
 from .get_robot_state import GetRobotStateSkill
@@ -46,6 +47,7 @@ __all__ = [
     "LLMReasonSkill",
     "LiveNarrateSkill",
     "MoveToPoseSkill",
+    "ExecuteXYActionSkill",
     "MoveJointsSkill",
     "JogJointsPrimitiveSkill",
     "GetRobotStateSkill",
@@ -141,6 +143,25 @@ PRIMITIVE_SKILL_CATALOG = [
         "description": "Move robot TCP to Cartesian pose [x,y,z,rx,ry,rz].",
         "params": {"pose": "[x,y,z,rx,ry,rz]", "velocity": "float", "acceleration": "float", "motion_type": "'linear'|'joint'"},
         "returns": "success, final_pose",
+    },
+    {
+        "name": "execute_xy_action",
+        "layer": "motion",
+        "description": "Execute XY-only linear motion from Gemini ER start/end points using calibrated pixel-to-robot mapping.",
+        "params": {
+            "start_point": "optional [y,x] normalized (or [x,y] pixels in pixel_xy mode)",
+            "end_point": "optional [y,x] normalized (or [x,y] pixels in pixel_xy mode)",
+            "point_mode": "'normalized_yx'|'pixel_xy'",
+            "frame_width": "int (default 1920)",
+            "frame_height": "int (default 1080)",
+            "move_to_start": "bool",
+            "velocity": "float",
+            "acceleration": "float",
+            "reference_pose": "optional [x,y,z,rx,ry,rz] for Z/orientation lock",
+        },
+        "returns": "start/end mapped poses, reached, z_motion_allowed=false",
+        "use_when": "Immediately after plan_trajectory for planar XY execution.",
+        "avoid_when": "Do not use before plan_trajectory output is available; does not perform Z motion.",
     },
     {
         "name": "move_joints",

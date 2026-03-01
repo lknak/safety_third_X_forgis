@@ -37,6 +37,7 @@ _NODE_TO_SKILL: dict[NodeType, str] = {
     NodeType.LLM_REASON: "llm_reason",
     NodeType.LIVE_NARRATE: "live_narrate",
     NodeType.MOVE_TO_POSE: "move_to_pose",
+    NodeType.EXECUTE_XY_ACTION: "execute_xy_action",
     NodeType.MOVE_JOINTS: "move_joints",
     NodeType.JOG_JOINTS: "jog_joints_primitive",
     NodeType.GET_ROBOT_STATE: "get_robot_state",

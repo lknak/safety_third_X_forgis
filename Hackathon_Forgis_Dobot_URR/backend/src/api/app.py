@@ -45,6 +45,7 @@ def create_app(
     camera_executor: "CameraExecutor" = None,
     io_robot_executor: "IOExecutor" = None,
     hand_executor: "HandExecutor" = None,
+    physical_ai_executor=None,
 ) -> FastAPI:
     """
     Create and configure the FastAPI application.

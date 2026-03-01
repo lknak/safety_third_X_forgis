@@ -57,6 +57,33 @@ export interface ToolCallMeta {
   nodeName?: string;
 }
 
+export type ChatMessageKind =
+  | "node"
+  | "reasoning"
+  | "plan"
+  | "status"
+  | "success"
+  | "error";
+
+export interface ChatMessageMedia {
+  type: string;
+  dataUrl: string;
+  label?: string;
+}
+
+export interface ChatMessageNode {
+  flowId: string;
+  name: string;
+  type: string;
+  status: string;
+  durationMs?: number;
+}
+
+export interface ChatMessagePlanStep {
+  skill: string;
+  description: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
@@ -64,6 +91,11 @@ export interface ChatMessage {
   timestamp: number;
   type?: ChatMessageType;
   meta?: ToolCallMeta;
+  kind?: ChatMessageKind;
+  artifacts?: Record<string, unknown>;
+  media?: ChatMessageMedia[];
+  node?: ChatMessageNode;
+  planSteps?: ChatMessagePlanStep[];
 }
 
 // ── Device types ────────────────────────────────────────────
@@ -156,6 +188,7 @@ export type ServerMessage =
   | { type: "orchestrator_clarification_timeout"; flow_id: string; node_name: string; timestamp: number }
   | { type: "orchestrator_live_chunk"; flow_id: string; node_name: string; text: string; audio_chunk: string; focus_regions?: Array<Record<string, unknown>>; timestamp: number }
   | { type: "orchestrator_planning_thought"; flow_id: string; thought: string; chosen_skill: string; goal_index?: number; confidence?: number; context_note?: string; catchy_phrase?: string; is_complete?: boolean; node_name?: string; phase?: string; timestamp: number }
+  | { type: "orchestrator_agentic_micro_plan"; flow_id: string; iteration: number; reasoning?: string; scene_summary?: string; progress?: Record<string, unknown>; timestamp: number }
   | { type: "pong" };
 
 // ── Bounding box types ─────────────────────────────────────

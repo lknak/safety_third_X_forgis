@@ -393,6 +393,7 @@ class OrchestratorEngine:
             _MOTION_TYPES = {
                 NodeType.ROBOT_EXECUTION_NODE,
                 NodeType.MOVE_TO_POSE,
+                NodeType.EXECUTE_XY_ACTION,
                 NodeType.MOVE_JOINTS,
             }
             _LIVE_TYPES = {

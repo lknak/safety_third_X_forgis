@@ -41,6 +41,7 @@ class NodeType(str, Enum):
 
     # Layer 3 — Motion
     MOVE_TO_POSE = "MOVE_TO_POSE"
+    EXECUTE_XY_ACTION = "EXECUTE_XY_ACTION"
     MOVE_JOINTS = "MOVE_JOINTS"
     JOG_JOINTS = "JOG_JOINTS"
     GET_ROBOT_STATE = "GET_ROBOT_STATE"
@@ -214,3 +215,47 @@ class GoalChangeRequest(BaseModel):
     """Request to modify goal during execution."""
 
     goal: str = Field(..., min_length=1)
+
+
+# ── Skill catalog helpers ────────────────────────────────────
+
+class SkillInfo(BaseModel):
+    """Metadata for a single orchestrator skill."""
+
+    name: str
+    node_type: NodeType
+    description: str = ""
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class IterativePlanStep(BaseModel):
+    """A single step inside an iterative plan."""
+
+    skill: str
+    description: str = ""
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class StepReasoning(BaseModel):
+    """Reasoning trace attached to a planning step."""
+
+    thought: str = ""
+    confidence: float = 1.0
+    catchy_phrase: str = ""
+
+
+# Pre-built indexes — populated at import time from NodeType enum.
+
+SKILL_CATALOG: list[SkillInfo] = []
+
+SKILL_BY_NAME: dict[str, SkillInfo] = {}
+
+SKILL_BY_NODE_TYPE: dict[NodeType, SkillInfo] = {}
+
+CATCHY_PHRASES: list[str] = [
+    "Eyes on target",
+    "Plotting the course",
+    "Executing maneuver",
+    "Checking results",
+    "Mission accomplished",
+]

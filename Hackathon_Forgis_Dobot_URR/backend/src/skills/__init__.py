@@ -8,7 +8,7 @@ from . import camera  # noqa: F401
 from . import hand  # noqa: F401
 from . import io  # noqa: F401
 from . import robot  # noqa: F401
-from . import primitives  # noqa: F401  — 15 primitive skills for the orchestrator
+from . import primitives  # noqa: F401  — primitive skills for the orchestrator
 
 __all__ = [
     "ExecutionContext",

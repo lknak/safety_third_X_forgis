@@ -6,5 +6,6 @@ from .io_executor import IOExecutor
 from .camera_executor import CameraExecutor
 from .hand_executor import HandExecutor
 from .dobot_nova5_executor import DobotNova5Executor
+from .physical_ai_executor import PhysicalAiExecutor
 
-__all__ = ["Executor", "RobotExecutor", "IOExecutor", "CameraExecutor", "HandExecutor", "DobotNova5Executor"]
+__all__ = ["Executor", "RobotExecutor", "IOExecutor", "CameraExecutor", "HandExecutor", "DobotNova5Executor", "PhysicalAiExecutor"]

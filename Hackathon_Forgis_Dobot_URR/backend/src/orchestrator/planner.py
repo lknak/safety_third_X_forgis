@@ -68,6 +68,7 @@ SKILL_TO_NODE_TYPE: dict[str, NodeType] = {
     "llm_reason": NodeType.LLM_REASON,
     "live_narrate": NodeType.LIVE_NARRATE,
     "move_to_pose": NodeType.MOVE_TO_POSE,
+    "execute_xy_action": NodeType.EXECUTE_XY_ACTION,
     "move_joints": NodeType.MOVE_JOINTS,
     "jog_joints": NodeType.JOG_JOINTS,
     "get_robot_state": NodeType.GET_ROBOT_STATE,
@@ -148,10 +149,11 @@ an ordered sequence of PRIMITIVE SKILLS.
    - "skills": array of {{"skill": str, "params": object, "description": str}}
    - Allowed skill names ONLY: {json.dumps(SKILL_NAMES)}
 2. Use the minimum necessary skill calls.
-3. For ANY task involving motion or manipulation, ALWAYS use Gemini ER for trajectory
-   planning via the plan_trajectory skill:
+3. For XY planar motion tasks, ALWAYS use Gemini ER for trajectory planning and
+   execution via:
    capture_image -> analyze_scene -> plan_trajectory(task="<describe the motion>") ->
-   move_to_pose (execute waypoints from trajectory) -> verify_outcome
+   execute_xy_action -> verify_outcome
+   execute_xy_action must consume ER trajectory output and keeps Z fixed.
    The plan_trajectory skill uses Gemini Robotics-ER 1.5 to generate optimal trajectory
    waypoints overlaid on the camera image.  It returns an annotated image showing the
    planned path — this image is displayed to the operator.
@@ -167,7 +169,8 @@ an ordered sequence of PRIMITIVE SKILLS.
    reasoning to overlay trajectories on the image.  Do NOT hardcode poses.
 9. For non-string params (bbox, pose arrays, booleans, numbers), provide concrete JSON values.
    Never emit template placeholders like "{{...}}".
-10. Return JSON only.
+10. Never call execute_xy_action before plan_trajectory in the same plan.
+11. Return JSON only.
 
 ## Instruction
 {instruction!r}
@@ -248,6 +251,11 @@ You must decide the NEXT SINGLE ACTION based on the CURRENT scene and what you'v
           move_to_pose(target) -> live_narrate(prompt="Placing in bin") ->
           suction_off -> verify_outcome
 
+- XY-only execution:
+  Goal: "Move in a straight XY path from source to destination without changing height"
+  Skills: capture_image -> plan_trajectory(task="<xy motion task>") -> execute_xy_action -> verify_outcome
+  NOTE: execute_xy_action is XY only and keeps Z fixed.
+
 - Trajectory visualization:
   Goal: "Show me how you would move the pen to the organizer"
   Skills: capture_image -> plan_trajectory(task="move the pen to the organizer", object_label="pen")
@@ -271,6 +279,8 @@ You must decide the NEXT SINGLE ACTION based on the CURRENT scene and what you'v
    plan_trajectory(task="<motion description>") -> estimate_grasp_pose ->
    move_to_pose (approach) -> move_to_pose (descend) ->
    suction_on -> move_to_pose (lift) -> move_to_pose (target) -> suction_off
+   For XY-only planar moves, use:
+   plan_trajectory(task="<xy motion description>") -> execute_xy_action -> verify_outcome
 4. Use the CURRENT scene analysis for positions — do NOT reuse positions from history.
 
 5. Choose the most efficient next action (nearest object, shortest path, etc.)
@@ -588,7 +598,7 @@ Clamp offsets to [-45, 45]. Return JSON only.
                 continue
 
             timeout_ms = 30000
-            if node_type in (NodeType.MOVE_TO_POSE, NodeType.MOVE_JOINTS):
+            if node_type in (NodeType.MOVE_TO_POSE, NodeType.EXECUTE_XY_ACTION, NodeType.MOVE_JOINTS):
                 timeout_ms = 45000
             elif node_type in (NodeType.WAIT, NodeType.WAIT_DIGITAL_INPUT):
                 timeout_ms = 60000
