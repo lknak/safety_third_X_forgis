@@ -60,7 +60,8 @@ def main():
 
     # Fixed ROS 2 nodes
     camera = CameraNode()
-    camera_bridge = CameraBridgeNode()
+    camera_input_mode = os.environ.get("CAMERA_INPUT_MODE", "usb").strip().lower()
+    camera_bridge = CameraBridgeNode() if camera_input_mode == "bridge" else None
     hand = CovviHandNode()
 
     # WebSocket manager for real-time events
@@ -119,7 +120,11 @@ def main():
     ros_executor = MultiThreadedExecutor()
     ros_executor.add_node(robot)
     ros_executor.add_node(camera)
-    ros_executor.add_node(camera_bridge)
+    if camera_bridge is not None:
+        ros_executor.add_node(camera_bridge)
+        logger.info("Camera bridge enabled (CAMERA_INPUT_MODE=bridge)")
+    else:
+        logger.info("Camera bridge disabled (CAMERA_INPUT_MODE=%s)", camera_input_mode or "usb")
     ros_executor.add_node(hand)
     # Run ROS 2 executor in background thread
     ros_thread = threading.Thread(target=run_ros_executor, args=(ros_executor,), daemon=True)
@@ -140,7 +145,8 @@ def main():
         ros_executor.shutdown()
         robot.destroy_node()
         camera.destroy_node()
-        camera_bridge.destroy_node()
+        if camera_bridge is not None:
+            camera_bridge.destroy_node()
         hand.destroy_node()
         rclpy.shutdown()
 

@@ -1,5 +1,6 @@
-"""ROS 2 node for RealSense camera image subscription."""
+"""ROS 2 node for generic camera image subscription (USB/topic/bridge)."""
 
+import os
 import threading
 from typing import Optional
 
@@ -12,7 +13,7 @@ from sensor_msgs.msg import Image
 
 class CameraNode(Node):
     """
-    ROS 2 node that subscribes to RealSense camera images.
+    ROS 2 node that subscribes to camera images from a configurable ROS topic.
 
     Stores the latest frame and a cached JPEG in a thread-safe manner
     for access by the executor.
@@ -25,37 +26,43 @@ class CameraNode(Node):
         self._frame_jpeg: Optional[bytes] = None
         self._frame_lock = threading.Lock()
 
-        # QoS must match the RealSense publisher (BEST_EFFORT)
+        # Default topic for USB camera publishers (can be overridden).
+        self._image_topic = os.environ.get("CAMERA_IMAGE_TOPIC", "/image_raw")
+
+        # QoS tuned for camera streams (BEST_EFFORT, low latency).
         qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
         )
 
-        # Subscribe to RealSense color image topic
+        # Subscribe to configured image topic.
         self.create_subscription(
             Image,
-            "/camera/camera/color/image_raw",
+            self._image_topic,
             self._on_image,
             qos,
         )
 
         self.get_logger().info(
-            "CameraNode initialized — waiting for /camera/camera/color/image_raw"
+            f"CameraNode initialized — waiting for {self._image_topic}"
         )
 
     def _on_image(self, msg: Image) -> None:
-        """Convert ROS Image (rgb8) to OpenCV BGR numpy array and cache it + JPEG."""
-        if msg.encoding not in ("rgb8", "RGB8"):
+        """Convert ROS Image to OpenCV BGR numpy array and cache it + JPEG."""
+        encoding = (msg.encoding or "").lower()
+        frame = np.frombuffer(msg.data, dtype=np.uint8).reshape((msg.height, msg.width, 3))
+
+        if encoding == "rgb8":
+            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        elif encoding == "bgr8":
+            frame_bgr = frame
+        else:
             self.get_logger().warn(
-                f"Unexpected encoding: {msg.encoding}", throttle_duration_sec=5.0
+                f"Unsupported image encoding: {msg.encoding}; expected rgb8/bgr8",
+                throttle_duration_sec=5.0,
             )
             return
-
-        frame_rgb = np.frombuffer(msg.data, dtype=np.uint8).reshape(
-            (msg.height, msg.width, 3)
-        )
-        frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
 
         # Encode JPEG once and cache it alongside the raw frame
         success, jpeg_data = cv2.imencode(

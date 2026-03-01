@@ -19,7 +19,14 @@ interface DevicesSidebarProps {
   onOpenDeviceDetail?: (device: Device) => void;
 }
 
-export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, nodeCreatorOpen, onCloseNodeCreator, onOpenDeviceDetail }: DevicesSidebarProps) {
+export function DevicesSidebar({
+  selectedStep,
+  onDeselectStep,
+  onParamChange,
+  nodeCreatorOpen,
+  onCloseNodeCreator,
+  onOpenDeviceDetail,
+}: DevicesSidebarProps) {
   const [devices, setDevices] = useState<Device[]>(DEFAULT_DEVICES);
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
@@ -30,7 +37,8 @@ export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, no
       return;
     }
 
-    const stillExists = selectedDeviceId && devices.some((device) => device.id === selectedDeviceId);
+    const stillExists =
+      selectedDeviceId && devices.some((device: Device) => device.id === selectedDeviceId);
     if (!stillExists) {
       setSelectedDeviceId(null);
     }
@@ -39,35 +47,48 @@ export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, no
   useEffect(() => {
     let disposed = false;
 
-    const syncRobotHealth = async () => {
+    const syncDeviceHealth = async () => {
       try {
         const health = await getOverallHealth();
-        if (disposed) return;
+        if (disposed || !health?.devices) return;
 
-        const robotHealth = health.devices.robot;
-        if (!robotHealth) return;
+        const healthData = health.devices;
 
-        const isConnected = robotHealth.status === "connected";
-        setDevices((prev) =>
-          prev.map((device) =>
-            device.type === "robot"
-              ? {
-                  ...device,
-                  status: robotHealth.status,
-                  reachable: isConnected,
-                  onlineSince: isConnected ? device.onlineSince ?? new Date().toISOString() : device.onlineSince,
-                }
-              : device,
-          ),
+        setDevices((prev: Device[]) =>
+          prev.map((device: Device) => {
+            const updates: Partial<Device> = {};
+
+            if (device.type === "robot" && healthData.robot) {
+              const connected = healthData.robot.status === "connected";
+              updates.status = healthData.robot.status;
+              updates.reachable = connected;
+              if (connected) updates.onlineSince = device.onlineSince ?? new Date().toISOString();
+            } else if (device.type === "camera" && healthData.camera) {
+              const connected = healthData.camera.status === "connected";
+              updates.status = healthData.camera.status;
+              updates.reachable = connected;
+              if (connected) updates.onlineSince = device.onlineSince ?? new Date().toISOString();
+            } else if (device.type === "gripper" && healthData.hand) {
+              const connected = healthData.hand.status === "connected";
+              updates.status = healthData.hand.status;
+              updates.reachable = connected;
+              if (connected) updates.onlineSince = device.onlineSince ?? new Date().toISOString();
+            }
+
+            if (Object.keys(updates).length > 0) {
+              return { ...device, ...updates };
+            }
+            return device;
+          })
         );
-      } catch {
-        // Keep existing local state if backend health endpoint is temporarily unavailable.
+      } catch (err) {
+        console.warn("Device health sync failed:", err);
       }
     };
 
-    void syncRobotHealth();
+    void syncDeviceHealth();
     const intervalId = window.setInterval(() => {
-      void syncRobotHealth();
+      void syncDeviceHealth();
     }, 3000);
 
     return () => {
@@ -77,7 +98,7 @@ export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, no
   }, []);
 
   const handleDeleteDevice = (id: string) => {
-    setDevices((prev) => prev.filter((d) => d.id !== id));
+    setDevices((prev: Device[]) => prev.filter((d: Device) => d.id !== id));
   };
 
   const handleEditDevice = (device: Device) => {
@@ -85,16 +106,16 @@ export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, no
   };
 
   const handleAddOrUpdateDevice = (device: Device) => {
-    setDevices((prev) => {
-      const exists = prev.find((d) => d.id === device.id);
+    setDevices((prev: Device[]) => {
+      const exists = prev.find((d: Device) => d.id === device.id);
       if (exists) {
-        return prev.map((d) => (d.id === device.id ? device : d));
+        return prev.map((d: Device) => (d.id === device.id ? device : d));
       }
       return [...prev, device];
     });
   };
 
-  const groupedDevices = devices.reduce((acc, device) => {
+  const groupedDevices = devices.reduce((acc: Record<string, Device[]>, device: Device) => {
     const type = device.type;
     if (!acc[type]) acc[type] = [];
     acc[type].push(device);
@@ -120,12 +141,17 @@ export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, no
             }
             onAdd={handleAddOrUpdateDevice}
             editingDevice={editingDevice}
-            onOpenChange={(open) => !open && setEditingDevice(null)}
+            onOpenChange={(open: boolean) => !open && setEditingDevice(null)}
           />
         </div>
 
         {/* Device list groups */}
-        <div className={cn("overflow-y-auto -mx-3", selectedStep ? "shrink-0 max-h-[40%]" : "shrink-0 max-h-[38%]")}>
+        <div
+          className={cn(
+            "overflow-y-auto min-h-0 -mx-3",
+            selectedStep ? "shrink-0 max-h-[40%]" : "flex-1"
+          )}
+        >
           {groupOrder.map((type) => {
             const group = groupedDevices[type];
             if (!group || group.length === 0) return null;
@@ -141,7 +167,7 @@ export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, no
                   devices={group}
                   compact
                   selectedId={selectedDeviceId}
-                  onSelect={(device) => {
+                  onSelect={(device: Device) => {
                     setSelectedDeviceId(device.id);
                     onOpenDeviceDetail?.(device);
                   }}
@@ -166,7 +192,7 @@ export function DevicesSidebar({ selectedStep, onDeselectStep, onParamChange, no
                   devices={group}
                   compact
                   selectedId={selectedDeviceId}
-                  onSelect={(device) => {
+                  onSelect={(device: Device) => {
                     setSelectedDeviceId(device.id);
                     onOpenDeviceDetail?.(device);
                   }}

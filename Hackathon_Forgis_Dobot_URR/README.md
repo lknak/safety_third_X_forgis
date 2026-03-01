@@ -89,50 +89,38 @@ AZURE_OPENAI_API_VERSION=2024-02-15-preview
 AZURE_OPENAI_DEPLOYMENT=gpt-4o
 ```
 
-### RealSense Camera Setup (Windows)
+### USB Camera Setup (Sample Cell)
 
-The RealSense camera runs in a Docker container but requires USB passthrough from Windows to WSL2.
+The sample cell is configured for a generic USB UVC camera.
 
-**1. Install usbipd-win:**
+**Default camera mode:**
 
-Open PowerShell as Administrator:
-```powershell
-winget install usbipd
-```
+- `CAMERA_INPUT_MODE=usb`
+- `CAMERA_IMAGE_TOPIC=/image_raw`
 
-**2. List USB devices:**
+This means backend camera ingestion expects ROS images on `/image_raw` and does not require the WebSocket bridge.
 
-```powershell
-usbipd list
-```
-
-Find your RealSense camera (Intel RealSense). Note the **BUSID** (e.g., `2-3`).
-
-**3. Bind and attach to WSL2:**
-
-```powershell
-# Bind the device (one-time setup)
-usbipd bind --busid <BUSID>
-
-# Attach to WSL2 (run each time you reconnect the camera)
-usbipd attach --wsl --busid <BUSID>
-```
-
-**4. Verify in WSL2:**
+**1. Ensure the USB camera is visible to Linux/WSL:**
 
 ```bash
-lsusb | grep -i intel
+ls /dev/video*
 ```
 
-You should see the RealSense device listed.
+**2. Run a ROS camera publisher (example with usb_cam):**
 
-**5. Rebuild and run:**
+```bash
+ros2 run usb_cam usb_cam_node_exe --ros-args -r /image_raw:=/image_raw
+```
+
+**3. Start the stack:**
 
 ```bash
 docker compose up --build
 ```
 
-**Note:** After unplugging/replugging the camera, you need to run `usbipd attach --wsl --busid <BUSID>` again.
+**Optional bridge mode (legacy RealSense stream):**
+
+Set `CAMERA_INPUT_MODE=bridge` and configure `CAMERA_BRIDGE_HOST` / `CAMERA_BRIDGE_PORT`.
 
 ### Run
 

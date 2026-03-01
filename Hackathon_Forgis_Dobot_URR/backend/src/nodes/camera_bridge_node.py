@@ -1,4 +1,4 @@
-"""ROS 2 node that bridges WebSocket camera frames to ROS topics."""
+"""ROS 2 node that bridges WebSocket camera frames to a ROS image topic."""
 
 import asyncio
 import logging
@@ -20,11 +20,7 @@ MAX_QUEUE_SIZE = 1  # Always use freshest frame
 class CameraBridgeNode(Node):
     """
     ROS 2 node that receives camera frames from a WebSocket server
-    and publishes them as ROS Image messages.
-
-    This enables streaming from a Windows RealSense camera to the
-    Docker backend via WebSocket, then republishing to the standard
-    ROS camera topic that CameraNode subscribes to.
+    and publishes them as ROS Image messages on a configurable topic.
     """
 
     def __init__(self):
@@ -34,6 +30,7 @@ class CameraBridgeNode(Node):
         self.ws_host = os.environ.get("CAMERA_BRIDGE_HOST", "host.docker.internal")
         self.ws_port = int(os.environ.get("CAMERA_BRIDGE_PORT", "8765"))
         self.ws_uri = f"ws://{self.ws_host}:{self.ws_port}"
+        self._image_topic = os.environ.get("CAMERA_IMAGE_TOPIC", "/image_raw")
 
         # QoS matching RealSense defaults (BEST_EFFORT)
         qos = QoSProfile(
@@ -44,7 +41,7 @@ class CameraBridgeNode(Node):
 
         # Publisher for raw camera images
         self.image_pub = self.create_publisher(
-            Image, "/camera/camera/color/image_raw", qos
+            Image, self._image_topic, qos
         )
 
         # Connection state
@@ -60,7 +57,7 @@ class CameraBridgeNode(Node):
         self._ws_thread.start()
 
         self.get_logger().info(
-            f"CameraBridgeNode initialized — connecting to {self.ws_uri}"
+            f"CameraBridgeNode initialized — connecting to {self.ws_uri} and publishing {self._image_topic}"
         )
 
     def _run_ws_client(self) -> None:

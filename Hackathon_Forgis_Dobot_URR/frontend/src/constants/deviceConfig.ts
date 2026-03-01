@@ -28,7 +28,7 @@ export const STATUS_LABEL: Record<DeviceStatus, string> = {
 
 export const BRANDS: Record<DeviceType, string[]> = {
   robot: ["Universal Robots", "ABB", "KUKA", "Fanuc", "Yaskawa", "Doosan"],
-  camera: ["Intel RealSense", "Cognex", "Keyence", "Basler", "Sick", "Allied Vision"],
+  camera: ["Logitech", "Intel RealSense", "Cognex", "Keyence", "Basler", "Sick", "Allied Vision"],
   sensor: ["Sick", "Pepperl+Fuchs", "Banner Engineering", "ifm", "Balluff"],
   gripper: ["OnRobot", "Robotiq", "Schunk", "SMC", "Zimmer Group"],
 };
@@ -49,14 +49,14 @@ export const DEFAULT_DEVICES: Device[] = [
   },
   {
     id: "cam-default",
-    name: "RealSense D435",
-    vendor: "Intel",
+    name: "USB Camera",
+    vendor: "Logitech",
     type: "camera",
     status: "disconnected",
-    ip: "localhost:8765",
+    ip: "/dev/video0",
     reachable: false,
     onlineSince: "2024-02-21T08:30:00Z",
-    firmwareVersion: "2.54.0",
+    firmwareVersion: "UVC",
   },
   {
     id: "gripper-default",

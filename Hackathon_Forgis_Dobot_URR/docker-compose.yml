@@ -45,6 +45,8 @@ services:
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
       - FLOWS_DIR=/app/flows
       - YOLO_MODEL=${YOLO_MODEL:-/app/weights/roboflow_logistics.pt}
+      - CAMERA_INPUT_MODE=${CAMERA_INPUT_MODE:-usb}
+      - CAMERA_IMAGE_TOPIC=${CAMERA_IMAGE_TOPIC:-/image_raw}
       - CAMERA_BRIDGE_HOST=${CAMERA_BRIDGE_HOST:-127.0.0.1}
       - CAMERA_BRIDGE_PORT=${CAMERA_BRIDGE_PORT:-8765}
       - ROBOT_TCP_OFFSET=${ROBOT_TCP_OFFSET:-0,0,0.055,0,0,0}

@@ -64,8 +64,9 @@ class HealthService:
             )
         if normalized == "camera":
             return (
-                "Check camera USB/network connection and restart the camera service. Verify snapshot/stream endpoints "
-                "respond before starting flow execution."
+                "Check the USB camera connection and verify the configured ROS image topic (CAMERA_IMAGE_TOPIC, "
+                "default /image_raw) is publishing frames. If using bridge mode, verify CAMERA_INPUT_MODE=bridge "
+                "and camera bridge endpoint availability."
             )
         if normalized == "hand":
             return (
