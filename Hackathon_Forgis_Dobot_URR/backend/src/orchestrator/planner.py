@@ -1,7 +1,11 @@
-"""Planner for converting natural language goals into strict orchestrator node plans."""
+"""Planner for converting natural language goals into primitive skill sequences.
+
+Uses Gemini to decompose goals into ordered sequences of the 15 primitive skills.
+"""
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any
@@ -12,31 +16,28 @@ from .schemas import NodePlan, NodeType, PlanResult
 logger = logging.getLogger(__name__)
 
 NON_ACTIONABLE_TASK_MESSAGE = (
-    "No actionable robot task detected. Please provide an instruction such as "
-    "'Pick box A from infeed and place it in Zone_A'."
+    "No actionable task detected. Please provide an instruction such as "
+    "'Pick the red box from Zone A and place it in Zone B' or 'What objects are on the table?'."
 )
 
+# ── Skill catalog for the Gemini prompt ──────────────────────────────────────
+# Imported from the primitives package so the planner prompt always stays in sync.
+try:
+    from skills.primitives import PRIMITIVE_SKILL_CATALOG
+except ImportError:
+    PRIMITIVE_SKILL_CATALOG = []
+
+# ── Intent detection ─────────────────────────────────────────────────────────
 ACTION_VERBS = (
-    "pick",
-    "place",
-    "move",
-    "transfer",
-    "convey",
-    "put",
-    "grab",
-    "stack",
-    "sort",
-    "load",
-    "unload",
-    "palletize",
-    "label",
-    "jog",
-    "rotate",
-    "nudge",
+    "pick", "place", "move", "transfer", "convey", "put", "grab", "stack",
+    "sort", "load", "unload", "palletize", "label", "jog", "rotate", "nudge",
+    "check", "inspect", "verify", "scan", "look", "find", "detect", "count",
+    "read", "identify", "describe", "what", "where", "how", "is", "are",
+    "open", "close", "grip", "release", "suction", "wait", "pause",
+    "home", "stow", "calibrate",
 )
-ACTION_VERB_PATTERN = re.compile(r"\b(" + "|".join(ACTION_VERBS) + r")\b")
+ACTION_VERB_PATTERN = re.compile(r"\b(" + "|".join(ACTION_VERBS) + r")\b", re.IGNORECASE)
 
-# Detect jog / rotate joint commands (separate from pick-place pipeline)
 _JOG_PATTERN = re.compile(
     r"\b(?:jog|rotate|nudge)\b.*\b(?:joint|axis|j[0-5]|degree|deg)\b"
     r"|\b(?:move|turn)\b.*\b(?:joint|axis|j[0-5])\b.*\b(?:degree|deg|°)\b"
@@ -44,9 +45,43 @@ _JOG_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# ── NodeType mapping ─────────────────────────────────────────────────────────
+SKILL_TO_NODE_TYPE: dict[str, NodeType] = {
+    "capture_image": NodeType.CAPTURE_IMAGE,
+    "analyze_scene": NodeType.ANALYZE_SCENE,
+    "estimate_grasp_pose": NodeType.ESTIMATE_GRASP_POSE,
+    "llm_reason": NodeType.LLM_REASON,
+    "live_narrate": NodeType.LIVE_NARRATE,
+    "move_to_pose": NodeType.MOVE_TO_POSE,
+    "move_joints": NodeType.MOVE_JOINTS,
+    "jog_joints": NodeType.JOG_JOINTS,
+    "get_robot_state": NodeType.GET_ROBOT_STATE,
+    "suction_on": NodeType.SUCTION_ON,
+    "suction_off": NodeType.SUCTION_OFF,
+    "set_digital_output": NodeType.SET_DIGITAL_OUTPUT,
+    "wait_digital_input": NodeType.WAIT_DIGITAL_INPUT,
+    "wait": NodeType.WAIT,
+    "verify_outcome": NodeType.VERIFY_OUTCOME,
+}
+
+
+def _build_skill_catalog_text() -> str:
+    """Format the skill catalog as a concise reference for the planning prompt."""
+    lines: list[str] = []
+    for s in PRIMITIVE_SKILL_CATALOG:
+        params_str = json.dumps(s.get("params", {}))
+        lines.append(
+            f"  - {s['name']} [{s['layer']}]: {s['description']}  "
+            f"Params: {params_str}  Returns: {s.get('returns', 'success')}"
+        )
+    return "\n".join(lines)
+
+
+SKILL_CATALOG_TEXT = _build_skill_catalog_text()
+
 
 class OrchestratorPlanner:
-    """Gemini-backed planner that produces strict linear node sequences."""
+    """Gemini-backed planner that decomposes goals into primitive skill sequences."""
 
     def __init__(self, gemini: OrchestratorGeminiClient):
         self._gemini = gemini
@@ -56,43 +91,58 @@ class OrchestratorPlanner:
         if not self._looks_like_robot_task(instruction):
             raise ValueError(NON_ACTIONABLE_TASK_MESSAGE)
 
-        # Fast-path: jog / rotate joint commands skip the full vision pipeline.
+        # Fast-path: jog commands
         if self._is_jog_command(instruction):
             return await self._plan_jog(instruction)
 
-        prompt = f"""
-You are a robotics orchestrator planner.
-Return STRICT JSON with keys: subgoals (array), assumptions (array).
-Each subgoal must include:
-- id (string)
-- object (string)
-- source_zone (string)
-- target_zone (string)
-- object_class (string)
+        prompt = f"""You are a robotics orchestrator planner. You must decompose a user goal into
+an ordered sequence of PRIMITIVE SKILLS.
 
-Instruction: {instruction!r}
-Cell state JSON: {cell_state}
+## Available Primitive Skills
+{SKILL_CATALOG_TEXT}
 
-Rules:
-- Decompose task into ordered subgoals.
-- If instruction is simple, emit one subgoal.
-- Keep fields concise and deterministic.
-- Return only JSON.
+## Rules
+1. Return STRICT JSON with keys:
+   - "assumptions": array of string assumptions you are making
+   - "skills": array of objects, each with:
+     - "skill": string (exact skill name from the list above)
+     - "params": object (skill parameters — use sensible defaults when unknown)
+     - "description": string (one-line explanation of what this step does)
+2. Decompose the task into the minimum necessary skill calls.
+3. For pick-and-place tasks, use this pattern:
+   capture_image → analyze_scene → estimate_grasp_pose → move_to_pose (approach) →
+   move_to_pose (grasp) → suction_on → move_to_pose (lift) → move_to_pose (target) →
+   move_to_pose (place) → suction_off → move_to_pose (retract) → verify_outcome
+4. For perception-only tasks (questions about the scene), use:
+   capture_image → analyze_scene → llm_reason (summarize)
+5. Always end manipulation tasks with verify_outcome.
+6. Use move_to_pose with motion_type "joint" for large transit moves, "linear" for precise positioning.
+7. Return JSON only — no markdown, no explanation.
+
+## User Instruction
+{instruction!r}
+
+## Current Cell State
+{json.dumps(cell_state, default=str)}
 """
-        raw = await self._gemini.generate_json(prompt)
-        subgoals = raw.get("subgoals") or []
+        try:
+            raw = await self._gemini.generate_json(prompt)
+        except Exception as exc:
+            logger.warning("Gemini planning failed (%s), using fallback", exc)
+            raw = self._fallback_plan(instruction)
+
         assumptions = raw.get("assumptions") or []
+        skills = raw.get("skills") or []
 
-        if not isinstance(subgoals, list):
-            subgoals = []
+        if not isinstance(skills, list) or len(skills) == 0:
+            skills = self._fallback_plan(instruction).get("skills", [])
 
-        if len(subgoals) == 0:
-            # Deterministic fallback for transient model schema misses.
-            subgoals = [self._fallback_subgoal(instruction)]
+        nodes = self._skills_to_nodes(skills)
+        subgoals = [
+            {"id": f"step_{i+1}", "skill": s.get("skill"), "description": s.get("description", "")}
+            for i, s in enumerate(skills)
+        ]
 
-        subgoals = self._normalize_subgoals(subgoals)
-
-        nodes = self._build_nodes(subgoals)
         return PlanResult(subgoals=subgoals, assumptions=assumptions, nodes=nodes)
 
     async def replan(
@@ -102,37 +152,47 @@ Rules:
         note: str,
         cell_state: dict[str, Any],
     ) -> PlanResult:
-        """Regenerate downstream plan after clarification or goal change."""
-        prompt = f"""
-You are replanning a robotics task after failure or goal modification.
-Return STRICT JSON with keys: subgoals (array), assumptions (array).
+        """Regenerate plan after clarification or goal change."""
+        prompt = f"""You are replanning a robotics task after failure or goal modification.
 
+## Available Primitive Skills
+{SKILL_CATALOG_TEXT}
+
+## Context
 Original instruction: {instruction!r}
 Operator note: {note!r}
-Previous subgoals: {previous_subgoals}
-Current cell state: {cell_state}
+Previous steps: {json.dumps(previous_subgoals, default=str)}
+Current cell state: {json.dumps(cell_state, default=str)}
 
-Rules:
-- Produce an updated ordered subgoal list.
-- Keep schema identical to initial planning.
-- Return only JSON.
+## Rules
+- Return STRICT JSON with keys: "assumptions" (array), "skills" (array).
+- Each skill object: {{"skill": str, "params": object, "description": str}}
+- Produce an updated plan accounting for the operator note.
+- Return JSON only.
 """
-        raw = await self._gemini.generate_json(prompt)
-        subgoals = raw.get("subgoals") or []
+        try:
+            raw = await self._gemini.generate_json(prompt)
+        except Exception as exc:
+            logger.warning("Gemini replan failed (%s), using fallback", exc)
+            raw = self._fallback_plan(instruction)
+
         assumptions = raw.get("assumptions") or []
+        skills = raw.get("skills") or []
 
-        if not isinstance(subgoals, list):
-            subgoals = []
-
-        if len(subgoals) == 0:
+        if not isinstance(skills, list) or len(skills) == 0:
             if not self._looks_like_robot_task(instruction):
                 raise ValueError(NON_ACTIONABLE_TASK_MESSAGE)
-            subgoals = [self._fallback_subgoal(instruction)]
+            skills = self._fallback_plan(instruction).get("skills", [])
 
-        subgoals = self._normalize_subgoals(subgoals)
+        nodes = self._skills_to_nodes(skills)
+        subgoals = [
+            {"id": f"step_{i+1}", "skill": s.get("skill"), "description": s.get("description", "")}
+            for i, s in enumerate(skills)
+        ]
 
-        nodes = self._build_nodes(subgoals)
         return PlanResult(subgoals=subgoals, assumptions=assumptions, nodes=nodes)
+
+    # ── Intent detection ─────────────────────────────────────────────────────
 
     @staticmethod
     def _looks_like_robot_task(instruction: str) -> bool:
@@ -148,10 +208,11 @@ Rules:
         """Detect jog/rotate joint commands."""
         return bool(_JOG_PATTERN.search(instruction or ""))
 
+    # ── Jog planning ─────────────────────────────────────────────────────────
+
     async def _plan_jog(self, instruction: str) -> PlanResult:
         """Plan a jog command by asking Gemini to extract joint offsets."""
-        prompt = f"""
-You are a robotics joint-jog parser.
+        prompt = f"""You are a robotics joint-jog parser.
 The robot has 6 joints: j0 (base), j1 (shoulder), j2 (elbow), j3 (wrist1), j4 (wrist2), j5 (wrist3).
 Return STRICT JSON with keys:
 - offsets_deg: array of 6 floats, the relative offset in degrees for each joint.
@@ -162,16 +223,10 @@ Return STRICT JSON with keys:
 Instruction: {instruction!r}
 
 Rules:
-- Parse the instruction to determine which joints to move and by how much.
 - "every joint" or "all joints" means all 6 joints get the same offset.
 - Positive = counter-clockwise, negative = clockwise.
 - Clamp each offset to [-45, 45] degrees for safety.
-- Return only JSON, no explanation.
-
-Examples:
-- "move every joint by 5 degrees" -> {{"offsets_deg": [5,5,5,5,5,5], "velocity": 0.5, "acceleration": 0.5}}
-- "rotate joint 3 by -10 degrees" -> {{"offsets_deg": [0,0,0,-10,0,0], "velocity": 0.5, "acceleration": 0.5}}
-- "jog j0 and j1 by 15 deg" -> {{"offsets_deg": [15,15,0,0,0,0], "velocity": 0.5, "acceleration": 0.5}}
+- Return only JSON.
 """
         try:
             raw = await self._gemini.generate_json(prompt)
@@ -182,37 +237,26 @@ Examples:
         offsets = raw.get("offsets_deg", [0, 0, 0, 0, 0, 0])
         if not isinstance(offsets, list) or len(offsets) != 6:
             offsets = [0, 0, 0, 0, 0, 0]
-
-        # Clamp safety
         offsets = [max(-45, min(45, float(o))) for o in offsets]
 
         velocity = float(raw.get("velocity", 0.5))
         acceleration = float(raw.get("acceleration", 0.5))
 
-        payload = {
-            "instruction": instruction,
-            "offsets_deg": offsets,
-            "velocity": velocity,
-            "acceleration": acceleration,
-        }
-
-        nodes = [
-            NodePlan(
-                name="jog_joints",
-                type=NodeType.JOG_JOINTS_NODE,
-                payload=payload,
-                timeout_ms=20000,
-            ),
-            NodePlan(
-                name="summary",
-                type=NodeType.SUMMARY_NODE,
-                payload={},
-                timeout_ms=10000,
-            ),
+        skills = [
+            {
+                "skill": "jog_joints",
+                "params": {
+                    "offsets_deg": offsets,
+                    "velocity": velocity,
+                    "acceleration": acceleration,
+                },
+                "description": f"Jog joints: {instruction}",
+            }
         ]
 
+        nodes = self._skills_to_nodes(skills)
         return PlanResult(
-            subgoals=[{"id": "jog_1", "type": "jog_joints", "instruction": instruction}],
+            subgoals=[{"id": "jog_1", "skill": "jog_joints", "description": instruction}],
             assumptions=[f"Jog offsets: {offsets} deg"],
             nodes=nodes,
         )
@@ -222,123 +266,105 @@ Examples:
         """Regex fallback when Gemini is unavailable."""
         lower = instruction.lower()
 
-        # Extract degree value
         deg_match = re.search(r"(-?\d+(?:\.\d+)?)\s*(?:degree|deg|°)", lower)
         deg_val = float(deg_match.group(1)) if deg_match else 5.0
         deg_val = max(-45, min(45, deg_val))
 
-        # Check for "every" / "all" joints
         if re.search(r"\b(?:every|all)\s+joint", lower):
             return {"offsets_deg": [deg_val] * 6, "velocity": 0.5, "acceleration": 0.5}
 
-        # Check for specific joint references
         offsets = [0.0] * 6
         for m in re.finditer(r"\bj(?:oint)?\s*(\d)", lower):
             idx = int(m.group(1))
             if 0 <= idx <= 5:
                 offsets[idx] = deg_val
 
-        # If no specific joints matched, apply to all
         if all(o == 0 for o in offsets):
             offsets = [deg_val] * 6
 
         return {"offsets_deg": offsets, "velocity": 0.5, "acceleration": 0.5}
 
+    # ── Fallback planning ────────────────────────────────────────────────────
+
     @staticmethod
-    def _fallback_subgoal(instruction: str) -> dict[str, Any]:
+    def _fallback_plan(instruction: str) -> dict[str, Any]:
+        """Deterministic fallback when Gemini is unavailable."""
         lower = (instruction or "").lower()
+
+        # Pure perception / question
+        if any(w in lower for w in ("what", "where", "how many", "describe", "check", "inspect", "scan", "look", "find", "detect", "count", "read", "identify")):
+            return {
+                "assumptions": ["Using fallback: perception-only task"],
+                "skills": [
+                    {"skill": "capture_image", "params": {}, "description": "Capture current scene"},
+                    {"skill": "analyze_scene", "params": {"query": instruction}, "description": "Analyze scene with VLM"},
+                    {"skill": "llm_reason", "params": {"prompt": f"Summarize the analysis for the operator. Original question: {instruction}", "response_format": "text"}, "description": "Summarize for operator"},
+                ],
+            }
+
+        # Default: pick-and-place pattern
         target_zone = "target_zone"
         zone_match = re.search(r"\b(?:to|into|in|at)\s+([a-z0-9_ -]+)", lower)
         if zone_match:
             target_zone = zone_match.group(1).strip().replace(" ", "_")
 
-        obj = "object"
-        obj_match = re.search(r"\b(?:pick|grab|move|transfer|label|sort|stack|put)\s+([a-z0-9_ -]+)", lower)
-        if obj_match:
-            obj = obj_match.group(1).strip()
-
         return {
-            "id": "goal_1",
-            "object": obj,
-            "source_zone": "current_zone",
-            "target_zone": target_zone,
-            "object_class": "object",
+            "assumptions": ["Using fallback: generic pick-and-place pattern"],
+            "skills": [
+                {"skill": "capture_image", "params": {}, "description": "Capture scene"},
+                {"skill": "analyze_scene", "params": {"query": f"Locate the object for: {instruction}"}, "description": "Find target object"},
+                {"skill": "estimate_grasp_pose", "params": {"bbox": {"x": 0.5, "y": 0.5, "width": 0.1, "height": 0.1}, "object_class": "object"}, "description": "Estimate grasp pose"},
+                {"skill": "move_to_pose", "params": {"pose": [0, 0, 0.3, 0, 3.14, 0], "motion_type": "joint", "velocity": 0.5, "acceleration": 1.0}, "description": "Move to approach"},
+                {"skill": "suction_on", "params": {}, "description": "Activate suction"},
+                {"skill": "move_to_pose", "params": {"pose": [0, 0, 0.15, 0, 3.14, 0], "motion_type": "linear", "velocity": 0.15, "acceleration": 0.5}, "description": "Move to place"},
+                {"skill": "suction_off", "params": {}, "description": "Release suction"},
+                {"skill": "verify_outcome", "params": {"expected_state": f"Task completed: {instruction}"}, "description": "Verify outcome"},
+            ],
         }
 
-    @staticmethod
-    def _normalize_subgoals(subgoals: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        normalized: list[dict[str, Any]] = []
-        for idx, raw_goal in enumerate(subgoals, start=1):
-            goal = raw_goal if isinstance(raw_goal, dict) else {}
-            normalized.append(
-                {
-                    "id": str(goal.get("id") or f"goal_{idx}"),
-                    "object": str(goal.get("object") or "object"),
-                    "source_zone": str(goal.get("source_zone") or "current_zone"),
-                    "target_zone": str(goal.get("target_zone") or "target_zone"),
-                    "object_class": str(goal.get("object_class") or "object"),
-                }
-            )
-        return normalized
+    # ── Skill-to-node conversion ─────────────────────────────────────────────
 
-    def _build_nodes(self, subgoals: list[dict[str, Any]]) -> list[NodePlan]:
+    def _skills_to_nodes(self, skills: list[dict[str, Any]]) -> list[NodePlan]:
+        """Convert skill dicts from Gemini into NodePlan objects."""
         nodes: list[NodePlan] = []
 
-        for idx, subgoal in enumerate(subgoals, start=1):
-            name_prefix = f"goal_{idx}"
-            payload = {
-                "subgoal": subgoal,
-                "goal_index": idx,
-                "goal_count": len(subgoals),
-            }
+        for idx, skill_dict in enumerate(skills, start=1):
+            skill_name = skill_dict.get("skill", "")
+            node_type = SKILL_TO_NODE_TYPE.get(skill_name)
 
-            nodes.append(
-                NodePlan(
-                    name=f"{name_prefix}_er_analysis",
-                    type=NodeType.ER_1_5_ANALYSIS_NODE,
-                    payload=payload,
-                    timeout_ms=30000,
-                )
-            )
-            nodes.append(
-                NodePlan(
-                    name=f"{name_prefix}_depth_estimation",
-                    type=NodeType.DEPTH_ESTIMATION_NODE,
-                    payload=payload,
-                    timeout_ms=30000,
-                )
-            )
-            nodes.append(
-                NodePlan(
-                    name=f"{name_prefix}_robot_execution",
-                    type=NodeType.ROBOT_EXECUTION_NODE,
-                    payload=payload,
-                    timeout_ms=45000,
-                )
-            )
-            nodes.append(
-                NodePlan(
-                    name=f"{name_prefix}_live_commentary",
-                    type=NodeType.GEMINI_LIVE_COMMENTARY_NODE,
-                    payload=payload,
-                    timeout_ms=45000,
-                )
-            )
-            nodes.append(
-                NodePlan(
-                    name=f"{name_prefix}_verification",
-                    type=NodeType.VERIFICATION_NODE,
-                    payload=payload,
-                    timeout_ms=30000,
-                )
-            )
+            if node_type is None:
+                logger.warning("Unknown skill '%s' in plan, skipping", skill_name)
+                continue
 
-        nodes.append(
-            NodePlan(
-                name="summary",
-                type=NodeType.SUMMARY_NODE,
-                payload={},
-                timeout_ms=30000,
-            )
-        )
+            # Determine timeout based on skill type
+            timeout_ms = 30000
+            if node_type in (NodeType.MOVE_TO_POSE, NodeType.MOVE_JOINTS):
+                timeout_ms = 45000
+            elif node_type in (NodeType.WAIT, NodeType.WAIT_DIGITAL_INPUT):
+                timeout_ms = 60000
+            elif node_type in (NodeType.CAPTURE_IMAGE, NodeType.GET_ROBOT_STATE,
+                               NodeType.SUCTION_ON, NodeType.SUCTION_OFF):
+                timeout_ms = 10000
+
+            nodes.append(NodePlan(
+                name=f"step_{idx}_{skill_name}",
+                type=node_type,
+                payload={
+                    "skill_name": skill_name,
+                    "params": skill_dict.get("params", {}),
+                    "description": skill_dict.get("description", ""),
+                    "step_index": idx,
+                    "step_count": len(skills),
+                },
+                timeout_ms=timeout_ms,
+            ))
+
+        # Always append summary node
+        nodes.append(NodePlan(
+            name="summary",
+            type=NodeType.SUMMARY_NODE,
+            payload={},
+            timeout_ms=10000,
+        ))
+
         return nodes

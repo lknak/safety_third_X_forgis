@@ -1,4 +1,8 @@
-"""Node execution runtime for orchestrator FlowRuns."""
+"""Node execution runtime for orchestrator FlowRuns.
+
+Dispatches each NodePlan to the matching primitive skill via the skill registry,
+while keeping legacy node handlers for backward compatibility.
+"""
 
 from __future__ import annotations
 
@@ -21,6 +25,25 @@ from .schemas import (
 logger = logging.getLogger(__name__)
 
 EventEmitter = Callable[[str, dict[str, Any]], None]
+
+# Map NodeType → primitive skill name
+_NODE_TO_SKILL: dict[NodeType, str] = {
+    NodeType.CAPTURE_IMAGE: "capture_image",
+    NodeType.ANALYZE_SCENE: "analyze_scene",
+    NodeType.ESTIMATE_GRASP_POSE: "estimate_grasp_pose",
+    NodeType.LLM_REASON: "llm_reason",
+    NodeType.LIVE_NARRATE: "live_narrate",
+    NodeType.MOVE_TO_POSE: "move_to_pose",
+    NodeType.MOVE_JOINTS: "move_joints",
+    NodeType.JOG_JOINTS: "jog_joints_primitive",
+    NodeType.GET_ROBOT_STATE: "get_robot_state",
+    NodeType.SUCTION_ON: "suction_on",
+    NodeType.SUCTION_OFF: "suction_off",
+    NodeType.SET_DIGITAL_OUTPUT: "set_digital_output",
+    NodeType.WAIT_DIGITAL_INPUT: "wait_digital_input",
+    NodeType.WAIT: "wait",
+    NodeType.VERIFY_OUTCOME: "verify_outcome",
+}
 
 
 class NodeRunner:
@@ -45,7 +68,7 @@ class NodeRunner:
         plan: NodePlan,
         context: dict[str, Any],
     ) -> FlowRunNodeRecord:
-        """Execute a non-paired node and return run record entry."""
+        """Execute a node and return run record entry."""
         start = time.time()
         self._emit(
             "orchestrator_node_started",
@@ -60,10 +83,15 @@ class NodeRunner:
             status = NodeResultStatus.SUCCESS
             artifacts: dict[str, Any] = {}
 
+            # Meta-nodes handled directly
             if plan.type == NodeType.INPUT_NODE:
                 artifacts = await self._run_input_node(context)
             elif plan.type == NodeType.ORCHESTRATOR_PLANNER_NODE:
                 artifacts = await self._run_planner_node(context)
+            elif plan.type == NodeType.SUMMARY_NODE:
+                artifacts = await self._run_summary_node(context)
+
+            # Legacy node types (backward compatibility)
             elif plan.type == NodeType.ER_1_5_ANALYSIS_NODE:
                 artifacts, status = await self._run_er_node(plan, context)
             elif plan.type == NodeType.DEPTH_ESTIMATION_NODE:
@@ -76,8 +104,11 @@ class NodeRunner:
                 artifacts, status = await self._run_verification_node(plan, context)
             elif plan.type == NodeType.JOG_JOINTS_NODE:
                 artifacts, status = await self._run_jog_joints_node(plan, context)
-            elif plan.type == NodeType.SUMMARY_NODE:
-                artifacts = await self._run_summary_node(context)
+
+            # ── Primitive skill dispatch ─────────────────────────────────
+            elif plan.type in _NODE_TO_SKILL:
+                artifacts, status = await self._run_primitive_skill(plan, context)
+
             else:
                 status = NodeResultStatus.FAILURE
                 artifacts = {"error": f"Unsupported node type: {plan.type.value}"}
@@ -113,13 +144,73 @@ class NodeRunner:
 
         return record
 
+    # ── Primitive skill execution ────────────────────────────────────────────
+
+    async def _run_primitive_skill(
+        self,
+        plan: NodePlan,
+        context: dict[str, Any],
+    ) -> tuple[dict[str, Any], NodeResultStatus]:
+        """Execute a primitive skill by name from the skill registry."""
+        from skills.base import ExecutionContext
+        from skills.registry import get_skill
+
+        skill_name = _NODE_TO_SKILL.get(plan.type)
+        if not skill_name:
+            return {"error": f"No skill mapped for {plan.type.value}"}, NodeResultStatus.FAILURE
+
+        try:
+            skill = get_skill(skill_name)
+        except KeyError:
+            return {"error": f"Skill '{skill_name}' not registered"}, NodeResultStatus.FAILURE
+
+        # Build execution context
+        params_dict = plan.payload.get("params", {})
+        exec_context = ExecutionContext(
+            flow_id=context["flow_id"],
+            step_id=plan.name,
+            state_name=plan.name,
+            executor_type=skill.executor_type,
+            executors=self._executors,
+            variables=context.setdefault("variables", {}),
+        )
+
+        # Parse and validate params
+        try:
+            params = skill.parse_params(params_dict)
+        except Exception as exc:
+            return {"error": f"Invalid params for '{skill_name}': {exc}"}, NodeResultStatus.FAILURE
+
+        valid, err_msg = await skill.validate(params)
+        if not valid:
+            return {"error": f"Validation failed for '{skill_name}': {err_msg}"}, NodeResultStatus.FAILURE
+
+        # Execute
+        result = await skill.execute(params, exec_context)
+
+        # Propagate variables back to context
+        context["variables"] = exec_context.variables
+
+        artifacts = {
+            "skill_name": skill_name,
+            "description": plan.payload.get("description", ""),
+            "result": result.data,
+        }
+        if result.error:
+            artifacts["error"] = result.error
+
+        status = NodeResultStatus.SUCCESS if result.success else NodeResultStatus.FAILURE
+        return artifacts, status
+
+    # ── Concurrent robot + live commentary ───────────────────────────────────
+
     async def execute_robot_and_live_pair(
         self,
         robot_plan: NodePlan,
         live_plan: NodePlan,
         context: dict[str, Any],
     ) -> tuple[FlowRunNodeRecord, FlowRunNodeRecord]:
-        """Execute robot and live nodes concurrently while keeping both node records."""
+        """Execute robot and live nodes concurrently."""
         self._emit(
             "orchestrator_tile_focus",
             {
@@ -139,7 +230,7 @@ class NodeRunner:
             },
         )
 
-        robot_task = asyncio.create_task(self._run_robot_node(robot_plan, context))
+        robot_task = asyncio.create_task(self._run_primitive_skill(robot_plan, context))
 
         live_record_task = asyncio.create_task(
             self._run_live_during_robot(live_plan, context, robot_task)
@@ -180,6 +271,8 @@ class NodeRunner:
         context.setdefault("executed_nodes", []).append(live_record)
         return robot_record, live_record
 
+    # ── Meta-node handlers ───────────────────────────────────────────────────
+
     async def _run_input_node(self, context: dict[str, Any]) -> dict[str, Any]:
         cell_state = {
             name: {
@@ -215,10 +308,27 @@ class NodeRunner:
             ],
         }
 
+    async def _run_summary_node(self, context: dict[str, Any]) -> dict[str, Any]:
+        executed: list[FlowRunNodeRecord] = context.get("executed_nodes", [])
+        return {
+            "requested_task": context.get("instruction", ""),
+            "planned_steps": [p.name for p in context.get("plan_nodes", [])],
+            "step_outcomes": [
+                {
+                    "name": node.name,
+                    "type": node.type.value,
+                    "status": node.status.value,
+                }
+                for node in executed
+            ],
+            "deviations": context.get("deviations", []),
+            "observations": context.get("observations", []),
+        }
+
+    # ── Legacy node handlers (backward compatibility) ────────────────────────
+
     async def _run_er_node(
-        self,
-        plan: NodePlan,
-        context: dict[str, Any],
+        self, plan: NodePlan, context: dict[str, Any],
     ) -> tuple[dict[str, Any], NodeResultStatus]:
         camera = self._executors.get("camera")
         image_bytes = None
@@ -226,8 +336,7 @@ class NodeRunner:
             image_bytes = camera.get_snapshot_jpeg(quality=70)
 
         subgoal = plan.payload.get("subgoal", {})
-        prompt = f"""
-You are Gemini Robotics ER.
+        prompt = f"""You are Gemini Robotics ER.
 Return STRICT JSON with keys:
 - feasibility: "SUCCESS" | "FAILURE"
 - reasoning: short string
@@ -263,13 +372,10 @@ Return JSON only.
 
         if feasibility != "SUCCESS":
             return artifacts, NodeResultStatus.FAILURE
-
         return artifacts, NodeResultStatus.SUCCESS
 
     async def _run_depth_node(
-        self,
-        plan: NodePlan,
-        context: dict[str, Any],
+        self, plan: NodePlan, context: dict[str, Any],
     ) -> tuple[dict[str, Any], NodeResultStatus]:
         subgoal = plan.payload.get("subgoal", {})
         target_zone = str(subgoal.get("target_zone") or "default")
@@ -286,16 +392,13 @@ Return JSON only.
 
         grasp_z = float(class_cfg.get("grasp_z", zone_cfg.get("grasp_z", 0.12)))
         place_z = float(class_cfg.get("place_z", zone_cfg.get("place_z", 0.16)))
-
         grasp_z = min(max(grasp_z, min_z), max_z)
         place_z = min(max(place_z, min_z), max_z)
 
-        # XY are produced by ER in normalized coordinates. Convert with conservative defaults.
         er_result = context.get("er_results", {}).get(plan.payload.get("goal_index"), {})
         xy_waypoints = er_result.get("xy_waypoints") or [[0.5, 0.5]]
         x_norm, y_norm = xy_waypoints[0]
 
-        # Conservative, bounded conversion into robot coordinates in meters.
         workspace = self._safe_z.get("workspace", {})
         x_min = float(workspace.get("x_min", -0.25))
         x_max = float(workspace.get("x_max", 0.25))
@@ -323,9 +426,7 @@ Return JSON only.
         return artifacts, NodeResultStatus.SUCCESS
 
     async def _run_robot_node(
-        self,
-        plan: NodePlan,
-        context: dict[str, Any],
+        self, plan: NodePlan, context: dict[str, Any],
     ) -> tuple[dict[str, Any], NodeResultStatus]:
         robot = self._executors.get("robot")
         if robot is None or not hasattr(robot, "is_ready"):
@@ -362,11 +463,9 @@ Return JSON only.
         return artifacts, NodeResultStatus.FAILURE
 
     async def _run_live_node(
-        self,
-        plan: NodePlan,
-        context: dict[str, Any],
+        self, plan: NodePlan, context: dict[str, Any],
     ) -> tuple[dict[str, Any], NodeResultStatus]:
-        """Standalone live node execution (non-concurrent fallback)."""
+        """Standalone live node execution."""
         prompt = (
             "Provide concise real-time robotic action commentary (<= 2 lines) and mention any anomalies."
         )
@@ -489,11 +588,9 @@ Return JSON only.
         return record
 
     async def _run_jog_joints_node(
-        self,
-        plan: NodePlan,
-        context: dict[str, Any],
+        self, plan: NodePlan, context: dict[str, Any],
     ) -> tuple[dict[str, Any], NodeResultStatus]:
-        """Execute a jog-joints command using the robot executor."""
+        """Execute a legacy jog-joints command."""
         import math
 
         robot = self._executors.get("robot")
@@ -512,7 +609,6 @@ Return JSON only.
 
         target_deg = [cur + off for cur, off in zip(current_deg, offsets_deg)]
 
-        # Safety clamp
         for i, d in enumerate(target_deg):
             if not -360.0 <= d <= 360.0:
                 return {
@@ -544,9 +640,7 @@ Return JSON only.
         return artifacts, NodeResultStatus.FAILURE
 
     async def _run_verification_node(
-        self,
-        plan: NodePlan,
-        context: dict[str, Any],
+        self, plan: NodePlan, context: dict[str, Any],
     ) -> tuple[dict[str, Any], NodeResultStatus]:
         goal_idx = plan.payload.get("goal_index")
         robot_result = context.get("robot_results", {}).get(goal_idx, {})
@@ -568,20 +662,3 @@ Return JSON only.
             "goal_index": goal_idx,
         }
         return artifacts, node_status
-
-    async def _run_summary_node(self, context: dict[str, Any]) -> dict[str, Any]:
-        executed: list[FlowRunNodeRecord] = context.get("executed_nodes", [])
-        return {
-            "requested_task": context.get("instruction", ""),
-            "planned_steps": [p.name for p in context.get("plan_nodes", [])],
-            "step_outcomes": [
-                {
-                    "name": node.name,
-                    "type": node.type.value,
-                    "status": node.status.value,
-                }
-                for node in executed
-            ],
-            "deviations": context.get("deviations", []),
-            "observations": context.get("observations", []),
-        }

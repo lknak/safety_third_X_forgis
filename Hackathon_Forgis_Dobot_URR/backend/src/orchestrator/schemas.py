@@ -21,16 +21,44 @@ class OrchestratorState(str, Enum):
 
 
 class NodeType(str, Enum):
-    """Strict node taxonomy required by the orchestrator contract."""
+    """Strict node taxonomy — 15 primitive skills + 3 meta-nodes."""
 
+    # Meta-nodes (orchestrator infrastructure)
     INPUT_NODE = "INPUT_NODE"
     ORCHESTRATOR_PLANNER_NODE = "ORCHESTRATOR_PLANNER_NODE"
+    SUMMARY_NODE = "SUMMARY_NODE"
+
+    # Layer 1 — Perception
+    CAPTURE_IMAGE = "CAPTURE_IMAGE"
+    ANALYZE_SCENE = "ANALYZE_SCENE"
+    ESTIMATE_GRASP_POSE = "ESTIMATE_GRASP_POSE"
+
+    # Layer 2 — Reasoning / AI
+    LLM_REASON = "LLM_REASON"
+    LIVE_NARRATE = "LIVE_NARRATE"
+
+    # Layer 3 — Motion
+    MOVE_TO_POSE = "MOVE_TO_POSE"
+    MOVE_JOINTS = "MOVE_JOINTS"
+    JOG_JOINTS = "JOG_JOINTS"
+    GET_ROBOT_STATE = "GET_ROBOT_STATE"
+
+    # Layer 4 — Actuation
+    SUCTION_ON = "SUCTION_ON"
+    SUCTION_OFF = "SUCTION_OFF"
+    SET_DIGITAL_OUTPUT = "SET_DIGITAL_OUTPUT"
+    WAIT_DIGITAL_INPUT = "WAIT_DIGITAL_INPUT"
+
+    # Layer 5 — Flow Control
+    WAIT = "WAIT"
+    VERIFY_OUTCOME = "VERIFY_OUTCOME"
+
+    # Legacy aliases (for backward compatibility with existing flows)
     ER_1_5_ANALYSIS_NODE = "ER_1_5_ANALYSIS_NODE"
     DEPTH_ESTIMATION_NODE = "DEPTH_ESTIMATION_NODE"
     ROBOT_EXECUTION_NODE = "ROBOT_EXECUTION_NODE"
     GEMINI_LIVE_COMMENTARY_NODE = "GEMINI_LIVE_COMMENTARY_NODE"
     VERIFICATION_NODE = "VERIFICATION_NODE"
-    SUMMARY_NODE = "SUMMARY_NODE"
     JOG_JOINTS_NODE = "JOG_JOINTS_NODE"
 
 
