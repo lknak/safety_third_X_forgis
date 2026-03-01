@@ -40,6 +40,24 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: number;
+  kind?: "text" | "node" | "reasoning" | "plan" | "status" | "success" | "error";
+  node?: {
+    flowId: string;
+    name: string;
+    type: OrchestratorNodeType | string;
+    status: OrchestratorNodeStatus | "RUNNING";
+    durationMs?: number;
+  };
+  artifacts?: Record<string, unknown>;
+  media?: Array<{
+    type: "image" | "video";
+    dataUrl: string;
+    label?: string;
+  }>;
+  planSteps?: Array<{
+    skill: string;
+    description: string;
+  }>;
 }
 
 // ── Device types ────────────────────────────────────────────
@@ -130,6 +148,7 @@ export type ServerMessage =
   | { type: "orchestrator_clarification_requested"; flow_id: string; node_name: string; reason: string; timeout_seconds: number; choices: Array<"retry" | "replan" | "modify_goal" | "safe_stop">; timestamp: number }
   | { type: "orchestrator_clarification_resolved"; flow_id: string; action: "retry" | "replan" | "modify_goal" | "safe_stop"; note?: string; timestamp: number }
   | { type: "orchestrator_clarification_timeout"; flow_id: string; node_name: string; timestamp: number }
+  | { type: "orchestrator_agentic_micro_plan"; flow_id: string; iteration: number; reasoning: string; scene_summary?: string; progress?: Record<string, unknown>; timestamp: number }
   | { type: "orchestrator_live_chunk"; flow_id: string; node_name: string; text: string; audio_chunk: string; focus_regions?: Array<Record<string, unknown>>; timestamp: number }
   | { type: "pong" };
 

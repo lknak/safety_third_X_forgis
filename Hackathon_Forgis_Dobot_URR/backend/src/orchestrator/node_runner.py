@@ -303,9 +303,13 @@ class NodeRunner:
         context["plan_result"] = result
         context["plan_nodes"] = result.nodes
         context["subgoals"] = result.subgoals
+        plan_mode = "AGENTIC" if result.is_agentic else "STATIC"
+        reasoning = "; ".join(result.assumptions) if result.assumptions else ""
         return {
             "subgoals": result.subgoals,
             "assumptions": result.assumptions,
+            "plan_mode": plan_mode,
+            "reasoning": reasoning,
             "ordered_node_list": [
                 {
                     "name": node.name,

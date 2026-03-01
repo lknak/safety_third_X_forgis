@@ -209,6 +209,19 @@ You must decide the NEXT SINGLE ACTION based on the CURRENT scene and what you'v
 ## Available Primitive Skills
 {SKILL_CATALOG_TEXT}
 
+## Few-shot Patterns (guidance, not strict templates)
+- Perception query:
+  Goal: "Count blue boxes"
+  Skills: capture_image -> analyze_scene(query="count blue boxes") -> llm_reason(prompt="answer count")
+
+- One-object manipulation:
+  Goal: "Pick red block and place in Bin A"
+  Skills: depth_estimation -> estimate_grasp_pose -> move_to_pose(approach) -> move_to_pose(descend) ->
+          suction_on -> move_to_pose(lift) -> move_to_pose(target) -> suction_off -> verify_outcome
+
+- Failure-aware iteration:
+  If previous grasp failed, choose another object or adjust approach height/grasp point before retrying.
+
 ## Rules
 1. Return STRICT JSON with these keys:
    - "task_complete": bool — true ONLY if the ENTIRE goal is achieved (all objects handled, etc.)
@@ -493,7 +506,11 @@ Clamp offsets to [-45, 45]. Return JSON only.
         for i, entry in enumerate(history[-10:], start=1):  # Last 10 entries max
             status = entry.get("status", "UNKNOWN")
             desc = entry.get("description", entry.get("name", f"step_{i}"))
-            lines.append(f"  {i}. [{status}] {desc}")
+            error = entry.get("error")
+            if isinstance(error, str) and error:
+                lines.append(f"  {i}. [{status}] {desc} (error={error})")
+            else:
+                lines.append(f"  {i}. [{status}] {desc}")
 
         total = len(history)
         if total > 10:

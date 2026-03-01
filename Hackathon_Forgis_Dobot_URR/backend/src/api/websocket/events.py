@@ -56,6 +56,7 @@ class EventType(str, Enum):
     ORCHESTRATOR_CLARIFICATION_REQUESTED = "orchestrator_clarification_requested"
     ORCHESTRATOR_CLARIFICATION_RESOLVED = "orchestrator_clarification_resolved"
     ORCHESTRATOR_CLARIFICATION_TIMEOUT = "orchestrator_clarification_timeout"
+    ORCHESTRATOR_AGENTIC_MICRO_PLAN = "orchestrator_agentic_micro_plan"
 
     # Live commentary events
     ORCHESTRATOR_LIVE_CHUNK = "orchestrator_live_chunk"
