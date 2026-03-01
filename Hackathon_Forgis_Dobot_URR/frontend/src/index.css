@@ -97,6 +97,17 @@
   --handle-border: var(--steel);
   --selection-highlight: var(--flicker);
 
+  /* â”€â”€ Glass UI Tokens â”€â”€ */
+  --glass-bg-primary: color-mix(in srgb, var(--white) 72%, transparent);
+  --glass-bg-secondary: color-mix(in srgb, var(--cloudy) 55%, transparent);
+  --glass-border-strong: color-mix(in srgb, var(--white) 78%, transparent);
+  --glass-border-soft: color-mix(in srgb, var(--white) 45%, transparent);
+  --glass-specular: color-mix(in srgb, var(--white) 70%, transparent);
+  --glass-shadow-soft: 0 16px 42px color-mix(in srgb, var(--gunmetal) 12%, transparent);
+  --glass-shadow-focus: 0 0 0 1px color-mix(in srgb, var(--flicker) 55%, transparent), 0 14px 34px color-mix(in srgb, var(--orange) 20%, transparent);
+  --glass-blur: 18px;
+  --glass-saturate: 150%;
+
   /* ── Sidebar / Chat Colors ── */
   --sidebar-bg: var(--platinum);
   --chat-user-bg: var(--white);
@@ -447,6 +458,32 @@ h6 {
   to { transform: translateX(300%); }
 }
 
+@keyframes heroSwitch {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes glassFramePulse {
+  0%, 100% {
+    box-shadow: var(--glass-shadow-focus);
+  }
+  50% {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--flicker) 32%, transparent), 0 18px 38px color-mix(in srgb, var(--orange) 25%, transparent);
+  }
+}
+
+@keyframes dividerShimmer {
+  0% { opacity: 0.4; }
+  50% { opacity: 0.85; }
+  100% { opacity: 0.4; }
+}
+
 /* ============================================
    ANIMATION UTILITY CLASSES
    ============================================ */
@@ -523,6 +560,14 @@ h6 {
   animation: pulseConnection 2s ease-in-out infinite;
 }
 
+.animate-hero-switch {
+  animation: heroSwitch 260ms cubic-bezier(0.2, 0.7, 0.25, 1) both;
+}
+
+.animate-glass-frame-pulse {
+  animation: glassFramePulse 1.8s ease-in-out infinite;
+}
+
 /* ============================================
    GRADIENT UTILITY CLASSES
    ============================================ */
@@ -592,6 +637,109 @@ h6 {
   backdrop-filter: blur(4px);
 }
 
+.glass-surface {
+  position: relative;
+  border: 1px solid var(--glass-border-soft);
+  background:
+    linear-gradient(165deg, color-mix(in srgb, var(--glass-bg-primary) 92%, transparent) 0%, color-mix(in srgb, var(--glass-bg-secondary) 85%, transparent) 100%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: var(--glass-shadow-soft);
+  overflow: hidden;
+}
+
+.glass-surface::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--glass-specular) 70%, transparent) 0%, transparent 45%);
+  opacity: 0.65;
+}
+
+.glass-hero {
+  border-color: var(--glass-border-strong);
+  transition:
+    transform 300ms cubic-bezier(0.2, 0.7, 0.25, 1),
+    opacity 260ms ease,
+    border-color 220ms ease;
+}
+
+.glass-frame {
+  position: relative;
+  border-radius: 16px;
+  border: 1px solid var(--glass-border-soft);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--white) 58%, transparent) 0%, color-mix(in srgb, var(--cloudy) 43%, transparent) 100%);
+  backdrop-filter: blur(10px) saturate(130%);
+  transition:
+    border-color 220ms ease,
+    opacity 220ms ease,
+    transform 220ms ease,
+    box-shadow 220ms ease,
+    filter 220ms ease;
+}
+
+.glass-frame:hover {
+  transform: translateY(-2px);
+  border-color: var(--glass-border-strong);
+}
+
+.glass-frame-active {
+  border-color: color-mix(in srgb, var(--flicker) 62%, transparent);
+  box-shadow: var(--glass-shadow-focus);
+}
+
+.glass-divider {
+  position: relative;
+  width: 1px;
+  background: linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--white) 75%, transparent) 16%, color-mix(in srgb, var(--white) 75%, transparent) 84%, transparent 100%);
+}
+
+.glass-divider::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 8%;
+  bottom: 8%;
+  width: 3px;
+  background: linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--flicker) 50%, transparent) 50%, transparent 100%);
+  filter: blur(1.4px);
+  animation: dividerShimmer 2.4s ease-in-out infinite;
+}
+
+.glass-status-success {
+  border-color: color-mix(in srgb, var(--status-healthy) 75%, transparent);
+  color: color-mix(in srgb, var(--status-healthy) 72%, var(--gunmetal) 28%);
+}
+
+.glass-status-failure {
+  border-color: color-mix(in srgb, var(--status-critical) 70%, transparent);
+  color: color-mix(in srgb, var(--status-critical) 74%, var(--gunmetal) 26%);
+}
+
+.glass-status-running {
+  border-color: color-mix(in srgb, var(--status-warning) 76%, transparent);
+  color: color-mix(in srgb, var(--status-warning) 78%, var(--gunmetal) 22%);
+}
+
+@media (max-width: 768px) {
+  .glass-hero {
+    min-height: 48vh;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-glass-frame-pulse,
+  .animate-hero-switch,
+  .glass-divider::after {
+    animation: none !important;
+  }
+
+  .glass-frame,
+  .glass-hero {
+    transition: opacity 180ms ease, border-color 180ms ease;
+  }
+}
+
 .filter-drop-shadow-tiger {
   filter: drop-shadow(0 0 4px var(--accent-hover));
 }
@@ -632,4 +780,328 @@ h6 {
 
 .scrollbar-hidden::-webkit-scrollbar {
   display: none;
+}
+
+/* ============================================
+   TERMINAL CHAT THEME
+   ============================================ */
+
+:root {
+  --terminal-bg: #0d1117;
+  --terminal-panel: #111826;
+  --terminal-panel-2: #151e2f;
+  --terminal-border: #243248;
+  --terminal-fg: #d7e0ef;
+  --terminal-muted: #8fa1bb;
+  --terminal-accent: #7ac5ff;
+  --terminal-success: #7be07b;
+  --terminal-warning: #ffd67a;
+  --terminal-error: #ff8b8b;
+}
+
+.terminal-chat {
+  background:
+    radial-gradient(circle at 20% 0%, #1a2942 0%, transparent 45%),
+    radial-gradient(circle at 80% 100%, #1f2338 0%, transparent 50%),
+    var(--terminal-bg);
+  border: 1px solid var(--terminal-border);
+  color: var(--terminal-fg);
+}
+
+.terminal-welcome {
+  margin-top: 10px;
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--terminal-border);
+  background: color-mix(in srgb, var(--terminal-panel) 88%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.terminal-welcome-title {
+  font-family: 'Forgis Digit', 'Forgis Body', sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--terminal-accent);
+  margin-bottom: 4px;
+}
+
+.terminal-msg-user {
+  margin: 4px 0;
+  padding: 6px 0;
+  font-size: 13px;
+  color: #eff5ff;
+}
+
+.terminal-prompt {
+  color: var(--terminal-accent);
+  margin-right: 8px;
+}
+
+.terminal-msg-assistant {
+  margin: 4px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--terminal-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--terminal-panel-2) 92%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--terminal-fg);
+  white-space: pre-wrap;
+}
+
+.terminal-reasoning {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--terminal-accent);
+  background: color-mix(in srgb, var(--terminal-panel) 80%, transparent);
+  color: var(--terminal-muted);
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.terminal-status {
+  margin: 6px 0;
+  padding: 7px 10px;
+  border: 1px solid var(--terminal-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--terminal-panel-2) 88%, transparent);
+  font-size: 12px;
+  color: var(--terminal-fg);
+}
+
+.terminal-status-success {
+  border-color: color-mix(in srgb, var(--terminal-success) 48%, var(--terminal-border));
+  color: var(--terminal-success);
+}
+
+.terminal-status-error {
+  border-color: color-mix(in srgb, var(--terminal-error) 50%, var(--terminal-border));
+  color: var(--terminal-error);
+}
+
+.terminal-plan {
+  margin: 8px 0;
+  padding: 10px;
+  border: 1px solid var(--terminal-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--terminal-panel) 86%, transparent);
+}
+
+.terminal-plan-title {
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--terminal-accent);
+  margin-bottom: 6px;
+}
+
+.terminal-plan-step {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 8px;
+  font-size: 12px;
+  margin: 5px 0;
+  color: var(--terminal-fg);
+}
+
+.terminal-plan-step-num {
+  color: var(--terminal-muted);
+}
+
+.terminal-plan-step-skill {
+  color: #d6e9ff;
+}
+
+.terminal-plan-step-desc {
+  color: var(--terminal-muted);
+}
+
+.terminal-node-block {
+  margin: 6px 0;
+  border: 1px solid var(--terminal-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--terminal-panel-2) 92%, transparent);
+}
+
+.terminal-node-header {
+  display: grid;
+  grid-template-columns: auto auto auto 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  font-size: 12px;
+  cursor: default;
+}
+
+.terminal-expand-arrow {
+  color: var(--terminal-muted);
+  transition: transform 180ms ease;
+  display: inline-flex;
+}
+
+.terminal-expand-arrow-open {
+  transform: rotate(90deg);
+}
+
+.terminal-node-badge {
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border: 1px solid var(--terminal-border);
+}
+
+.terminal-node-badge-success {
+  color: var(--terminal-success);
+  border-color: color-mix(in srgb, var(--terminal-success) 40%, var(--terminal-border));
+}
+
+.terminal-node-badge-failure {
+  color: var(--terminal-error);
+  border-color: color-mix(in srgb, var(--terminal-error) 40%, var(--terminal-border));
+}
+
+.terminal-node-badge-timeout {
+  color: var(--terminal-warning);
+  border-color: color-mix(in srgb, var(--terminal-warning) 44%, var(--terminal-border));
+}
+
+.terminal-node-badge-running {
+  color: var(--terminal-accent);
+  border-color: color-mix(in srgb, var(--terminal-accent) 30%, var(--terminal-border));
+}
+
+.terminal-node-name {
+  color: #e6f1ff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-node-type {
+  color: var(--terminal-muted);
+  font-size: 11px;
+}
+
+.terminal-node-duration {
+  color: var(--terminal-muted);
+  font-size: 11px;
+}
+
+.terminal-node-detail {
+  border-top: 1px solid var(--terminal-border);
+  padding: 8px 10px 10px;
+  font-size: 12px;
+  color: var(--terminal-muted);
+  white-space: pre-wrap;
+}
+
+.terminal-media {
+  padding: 0 10px 10px;
+}
+
+.terminal-media img {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--terminal-border);
+}
+
+.terminal-live-panel {
+  margin-top: 8px;
+  margin-bottom: 6px;
+  padding: 10px;
+  border: 1px solid var(--terminal-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--terminal-panel) 84%, transparent);
+  display: grid;
+  gap: 10px;
+}
+
+.terminal-live-panel img {
+  width: 100%;
+  max-height: 180px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid var(--terminal-border);
+}
+
+.terminal-live-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--terminal-accent);
+  margin-bottom: 6px;
+}
+
+.terminal-live-text {
+  font-size: 12px;
+  color: var(--terminal-fg);
+  white-space: pre-wrap;
+}
+
+.terminal-input-area {
+  margin-top: 8px;
+  margin-bottom: 12px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid var(--terminal-border);
+  border-radius: 10px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--terminal-panel) 82%, transparent);
+}
+
+.terminal-input-prompt {
+  margin-top: 6px;
+  color: var(--terminal-accent);
+}
+
+.terminal-input-area textarea {
+  width: 100%;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--terminal-fg);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.terminal-input-area textarea::placeholder {
+  color: var(--terminal-muted);
+}
+
+.terminal-spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid color-mix(in srgb, var(--terminal-accent) 25%, transparent);
+  border-top-color: var(--terminal-accent);
+  border-radius: 50%;
+  display: inline-block;
+  animation: terminalSpin 0.7s linear infinite;
+}
+
+.terminal-cursor {
+  display: inline-block;
+  width: 8px;
+  height: 12px;
+  background: var(--terminal-accent);
+  opacity: 0.7;
+  animation: terminalBlink 1s steps(1, end) infinite;
+}
+
+@keyframes terminalSpin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes terminalBlink {
+  50% { opacity: 0; }
 }
