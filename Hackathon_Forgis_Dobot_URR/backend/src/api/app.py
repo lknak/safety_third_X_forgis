@@ -8,10 +8,20 @@ from typing import TYPE_CHECKING
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import flows_router, skills_router, camera_router, config_router, health_router, cell_router, robot_router
+from .routes import (
+    flows_router,
+    skills_router,
+    camera_router,
+    config_router,
+    health_router,
+    cell_router,
+    robot_router,
+    orchestrator_router,
+)
 from .routes.flows import set_flow_manager
 from .routes.camera import set_camera_executor
 from .routes.robot import set_robot_control_dependencies
+from .routes.orchestrator import set_orchestrator_engine
 from .websocket import WebSocketManager
 
 if TYPE_CHECKING:
@@ -20,6 +30,7 @@ if TYPE_CHECKING:
     from executors.io_executor import IOExecutor
     from executors.base import Executor
     from flow.manager import FlowManager
+    from orchestrator.engine import OrchestratorEngine
     from nodes.ur_node import RobotNode
 
 logger = logging.getLogger(__name__)
@@ -28,6 +39,7 @@ logger = logging.getLogger(__name__)
 def create_app(
     flow_manager: "FlowManager",
     ws_manager: WebSocketManager,
+    orchestrator_engine: "OrchestratorEngine",
     robot_node: "RobotNode",
     robot_executor: "Executor",
     camera_executor: "CameraExecutor" = None,
@@ -53,6 +65,7 @@ def create_app(
         logger.info("FastAPI application starting")
         # Inject flow manager into routes
         set_flow_manager(flow_manager)
+        set_orchestrator_engine(orchestrator_engine)
         # Inject camera executor if available
         if camera_executor:
             set_camera_executor(camera_executor)
@@ -74,7 +87,9 @@ def create_app(
                 logger.error(f"Executor initialization failed: {e}")
 
         init_task = asyncio.create_task(_init_executors())
+        await orchestrator_engine.start()
         yield
+        await orchestrator_engine.stop()
         init_task.cancel()
         logger.info("FastAPI application shutting down")
 
@@ -103,6 +118,7 @@ def create_app(
     if cell_router is not None:
         app.include_router(cell_router)
     app.include_router(robot_router)
+    app.include_router(orchestrator_router)
 
     # WebSocket endpoint
     @app.websocket("/ws")

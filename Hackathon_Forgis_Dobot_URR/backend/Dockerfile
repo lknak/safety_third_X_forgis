@@ -33,8 +33,8 @@ COPY src/ ./src/
 COPY scripts/ ./scripts/
 RUN sed -i 's/\r$//' scripts/*.sh && chmod +x scripts/*.sh
 
-# Create flows directory for flow persistence
-RUN mkdir -p /app/flows
+# Create persistence directories
+RUN mkdir -p /app/flows /app/runs
 
 # Pre-create Ultralytics settings to avoid runtime delay
 RUN mkdir -p /root/.config/Ultralytics /app/weights && \

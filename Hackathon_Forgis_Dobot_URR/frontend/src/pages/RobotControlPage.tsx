@@ -5,6 +5,8 @@ import { TopBar } from "@/components/layout/Topbar";
 import { CoderSidebar } from "@/components/chat/CoderSidebar";
 import { FlowCanvas } from "@/components/flow/FlowCanvas";
 import { FlowStatePanel } from "@/components/flow/FlowStatePanel";
+import { GlassTileThread } from "@/components/flow/GlassTileThread";
+import { ClarificationModal } from "@/components/flow/ClarificationModal";
 import { DevicesSidebar } from "@/components/devices/DevicesSidebar";
 import {
   Breadcrumb,
@@ -17,6 +19,7 @@ import {
 import { useFlowGeneration } from "@/hooks/useFlowGeneration";
 import { useCamera } from "@/hooks/useCamera";
 import { useFlowExecution } from "@/hooks/useFlowExecution";
+import { useOrchestratorRun } from "@/hooks/useOrchestratorRun";
 import { LINES } from "@/constants/factoryData";
 import { Button } from "@/components/ui/button";
 import { getOverallHealth } from "@/api/healthApi";
@@ -37,13 +40,22 @@ export function RobotControlPage() {
   const { lineId, cellId } = useParams<{ lineId: string; cellId: string }>();
   const line = LINES.find(l => l.id === lineId);
   const cell = line?.cells.find(c => c.id === cellId);
-  const { flow, messages, loading, sendMessage, updateStepParams } = useFlowGeneration();
+  const { flow, activeFlowId, messages, loading, sendMessage, updateStepParams } = useFlowGeneration();
   const { cameraFrame, lastLabel, callbacks: cameraCallbacks } = useCamera();
   const { flowStatus, nodeStates, finishing, startFlow, pauseFlow, resumeFlow, finishFlow, resetFlow } = useFlowExecution(flow, cameraCallbacks);
+  const {
+    tiles,
+    activeNodeName,
+    liveText,
+    autoplayBlocked,
+    armAudio,
+    clarification,
+    submitDecision,
+  } = useOrchestratorRun(activeFlowId);
 
   const [selectedStep, setSelectedStep] = useState<SelectedStep | null>(null);
   const [nodeCreatorOpen, setNodeCreatorOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<"canvas" | "panel">("canvas");
+  const [viewMode, setViewMode] = useState<"canvas" | "panel" | "orchestrator">("canvas");
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
   const [detailDevice, setDetailDevice] = useState<Device | null>(null);
 
@@ -110,6 +122,12 @@ export function RobotControlPage() {
     }
   }, [flowStatus, viewMode]);
 
+  useEffect(() => {
+    if (activeFlowId) {
+      setViewMode("orchestrator");
+    }
+  }, [activeFlowId]);
+
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-background">
       <TopBar />
@@ -155,6 +173,15 @@ export function RobotControlPage() {
               )}
             >
               State Panel
+            </button>
+            <button
+              onClick={() => setViewMode("orchestrator")}
+              className={cn(
+                "px-3 py-1 text-[10px] font-forgis-digit uppercase tracking-wider rounded-md transition-all",
+                viewMode === "orchestrator" ? "bg-white text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Glass Thread
             </button>
           </div>
         )}
@@ -229,54 +256,69 @@ export function RobotControlPage() {
               onSelectStep={(nodeId, step) => setSelectedStep({ nodeId, step })}
               onAddNode={() => setNodeCreatorOpen(true)}
             />
-          ) : (
+          ) : viewMode === "panel" ? (
             <FlowStatePanel
               flow={flow}
               nodeStates={nodeStates}
               cameraFrame={cameraFrame}
               lastLabel={lastLabel?.label || null}
             />
+          ) : (
+            <GlassTileThread
+              tiles={tiles}
+              activeNodeName={activeNodeName}
+              liveText={liveText}
+            />
           )}
 
           {/* Floating Action Bar */}
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-card/80 backdrop-blur-md border border-border/40 p-1.5 rounded-2xl shadow-2xl z-20">
-            <Button
-              variant={flowStatus === "idle" ? "default" : "secondary"}
-              className="h-10 px-6 rounded-xl font-forgis-digit uppercase tracking-wider"
-              onClick={startFlow}
-              disabled={!flow || flowStatus !== "idle"}
-            >
-              Initialize Sequence
-            </Button>
-
-            {flowStatus !== "idle" && (
-              <>
-                {flowStatus === "running" ? (
-                  <Button variant="outline" className="h-10 w-10 p-0 rounded-xl" onClick={pauseFlow}>
-                    <Pause size={18} />
-                  </Button>
-                ) : (
-                  <Button variant="outline" className="h-10 w-10 p-0 rounded-xl" onClick={resumeFlow}>
-                    <Play size={18} />
-                  </Button>
-                )}
-                <Button variant="destructive" className="h-10 w-10 p-0 rounded-xl" onClick={resetFlow}>
-                  <RotateCcw size={18} />
-                </Button>
-              </>
-            )}
-
-            {flowStatus === ("finished" as any) && (
+          {viewMode !== "orchestrator" && (
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-card/80 backdrop-blur-md border border-border/40 p-1.5 rounded-2xl shadow-2xl z-20">
               <Button
-                variant="default"
-                className="h-10 px-6 rounded-xl bg-[var(--status-healthy)] hover:bg-[var(--status-healthy)]/90"
-                onClick={finishFlow}
-                disabled={finishing}
+                variant={flowStatus === "idle" ? "default" : "secondary"}
+                className="h-10 px-6 rounded-xl font-forgis-digit uppercase tracking-wider"
+                onClick={startFlow}
+                disabled={!flow || flowStatus !== "idle" || !!activeFlowId}
               >
-                Complete Mission
+                Initialize Sequence
               </Button>
-            )}
-          </div>
+
+              {flowStatus !== "idle" && (
+                <>
+                  {flowStatus === "running" ? (
+                    <Button variant="outline" className="h-10 w-10 p-0 rounded-xl" onClick={pauseFlow}>
+                      <Pause size={18} />
+                    </Button>
+                  ) : (
+                    <Button variant="outline" className="h-10 w-10 p-0 rounded-xl" onClick={resumeFlow}>
+                      <Play size={18} />
+                    </Button>
+                  )}
+                  <Button variant="destructive" className="h-10 w-10 p-0 rounded-xl" onClick={resetFlow}>
+                    <RotateCcw size={18} />
+                  </Button>
+                </>
+              )}
+
+              {flowStatus === ("finished" as any) && (
+                <Button
+                  variant="default"
+                  className="h-10 px-6 rounded-xl bg-[var(--status-healthy)] hover:bg-[var(--status-healthy)]/90"
+                  onClick={finishFlow}
+                  disabled={finishing}
+                >
+                  Complete Mission
+                </Button>
+              )}
+            </div>
+          )}
+
+          {viewMode === "orchestrator" && autoplayBlocked && (
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 bg-card border border-[var(--status-warning)] rounded-xl px-4 py-2 flex items-center gap-3">
+              <span className="text-xs font-forgis-body text-foreground">Live audio is blocked by browser autoplay policy.</span>
+              <Button size="sm" onClick={armAudio}>Enable Audio</Button>
+            </div>
+          )}
         </div>
 
         {/* Right Sidebar - Assistant */}
@@ -302,6 +344,12 @@ export function RobotControlPage() {
         )}
       </div>
       <DiagnosticDialog open={diagnosticOpen} onOpenChange={setDiagnosticOpen} />
+      <ClarificationModal
+        open={!!clarification}
+        reason={clarification?.reason ?? ""}
+        timeoutSeconds={clarification?.timeoutSeconds ?? 45}
+        onAction={submitDecision}
+      />
       <DeviceDetailDialog
         device={detailDevice}
         open={!!detailDevice}

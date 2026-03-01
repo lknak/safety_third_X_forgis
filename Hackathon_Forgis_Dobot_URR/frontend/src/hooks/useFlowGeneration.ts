@@ -1,10 +1,11 @@
 import { useCallback, useState } from "react";
-import { generateFlow } from "@/api/flowApi";
+import { createOrchestratorTask } from "@/api/orchestratorApi";
 import { layoutFlow } from "@/services/flowLayoutService";
 import type { ChatMessage, Flow } from "@/types";
 
 export function useFlowGeneration() {
   const [flow, setFlow] = useState<Flow | null>(null);
+  const [activeFlowId, setActiveFlowId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -19,13 +20,18 @@ export function useFlowGeneration() {
     setLoading(true);
 
     try {
-      const result = await generateFlow(content);
-      setFlow(layoutFlow(result));
+      const result = await createOrchestratorTask(content);
+      setActiveFlowId(result.flow_id ?? null);
+      if (result.preview_flow) {
+        setFlow(layoutFlow(result.preview_flow as unknown as Flow));
+      }
 
       const assistantMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: "assistant",
-        content: `I've prepared the automation flow: **${result.name}**. It contains ${result.nodes.length - 2} states. You can review and execute it now.`,
+        content: result.flow_id
+          ? `Task queued for orchestrator run **${result.flow_id}**. Review the generated thread and monitor execution telemetry in real time.`
+          : result.message,
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, assistantMsg]);
@@ -65,5 +71,5 @@ export function useFlowGeneration() {
     []
   );
 
-  return { flow, messages, loading, sendMessage, updateStepParams };
+  return { flow, activeFlowId, messages, loading, sendMessage, updateStepParams };
 }

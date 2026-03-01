@@ -10,6 +10,7 @@ from api.app import create_app
 from api.websocket import WebSocketManager
 from executors import IOExecutor, RobotExecutor, CameraExecutor, HandExecutor, DobotNova5Executor
 from flow.manager import FlowManager
+from orchestrator.engine import OrchestratorEngine
 from health_service import init_health_service
 from nodes.ur_node import RobotNode
 from nodes.dobot_nova5_node import DobotNova5Node
@@ -88,10 +89,25 @@ def main():
         flows_dir=flows_dir,
     )
 
+    runs_dir = os.environ.get("ORCHESTRATOR_RUNS_DIR", "/app/runs")
+    safe_z_config = os.environ.get(
+        "ORCHESTRATOR_SAFE_Z_CONFIG",
+        "/app/src/data/orchestrator/safe_z_config.json",
+    )
+    orchestrator_engine = OrchestratorEngine(
+        executors=executors,
+        ws_manager=ws_manager,
+        runs_dir=runs_dir,
+        safe_z_config_path=safe_z_config,
+        queue_limit=3,
+        retention=200,
+    )
+
     # FastAPI application
     app = create_app(
         flow_manager,
         ws_manager,
+        orchestrator_engine,
         robot,
         robot_executor,
         camera_executor,

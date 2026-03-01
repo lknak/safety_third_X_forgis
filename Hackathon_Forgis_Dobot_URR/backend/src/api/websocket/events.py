@@ -39,6 +39,27 @@ class EventType(str, Enum):
     PING = "ping"
     PONG = "pong"
 
+    # Orchestrator supervisor events
+    ORCHESTRATOR_STATE_TRANSITION = "orchestrator_state_transition"
+    ORCHESTRATOR_TASK_QUEUED = "orchestrator_task_queued"
+    ORCHESTRATOR_RUN_COMPLETED = "orchestrator_run_completed"
+    ORCHESTRATOR_REPLANNED = "orchestrator_replanned"
+    ORCHESTRATOR_GOAL_CHANGE_REQUESTED = "orchestrator_goal_change_requested"
+    ORCHESTRATOR_GOAL_CHANGE_APPLIED = "orchestrator_goal_change_applied"
+
+    # Orchestrator node events
+    ORCHESTRATOR_NODE_STARTED = "orchestrator_node_started"
+    ORCHESTRATOR_NODE_FINISHED = "orchestrator_node_finished"
+    ORCHESTRATOR_TILE_FOCUS = "orchestrator_tile_focus"
+
+    # Clarification events
+    ORCHESTRATOR_CLARIFICATION_REQUESTED = "orchestrator_clarification_requested"
+    ORCHESTRATOR_CLARIFICATION_RESOLVED = "orchestrator_clarification_resolved"
+    ORCHESTRATOR_CLARIFICATION_TIMEOUT = "orchestrator_clarification_timeout"
+
+    # Live commentary events
+    ORCHESTRATOR_LIVE_CHUNK = "orchestrator_live_chunk"
+
 
 def create_event(event_type: str | EventType, data: dict[str, Any]) -> dict[str, Any]:
     """

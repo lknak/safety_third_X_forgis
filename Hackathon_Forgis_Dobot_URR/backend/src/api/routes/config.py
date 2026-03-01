@@ -1,4 +1,5 @@
 import logging
+import os
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
@@ -27,6 +28,7 @@ async def update_gemini_config(config: ConfigUpdate):
 
     try:
         ai_service.configure(api_key)
+        os.environ["GEMINI_API_KEY"] = api_key
         logger.info("Gemini API key updated at runtime")
         return {"status": "success", "message": "Gemini API key updated"}
     except ValueError as exc:

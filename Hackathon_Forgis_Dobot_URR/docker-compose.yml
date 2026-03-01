@@ -45,15 +45,23 @@ services:
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
       - FLOWS_DIR=/app/flows
       - YOLO_MODEL=${YOLO_MODEL:-/app/weights/roboflow_logistics.pt}
+      - CAMERA_BRIDGE_HOST=${CAMERA_BRIDGE_HOST:-127.0.0.1}
+      - CAMERA_BRIDGE_PORT=${CAMERA_BRIDGE_PORT:-8765}
       - ROBOT_TCP_OFFSET=${ROBOT_TCP_OFFSET:-0,0,0.055,0,0,0}
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
       - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
       - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2024-02-15-preview}
       - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT:-gpt-4o}
+      - ORCHESTRATOR_RUNS_DIR=/app/runs
+      - ORCHESTRATOR_SAFE_Z_CONFIG=/app/src/data/orchestrator/safe_z_config.json
+      - GEMINI_ORCHESTRATOR_MODEL=${GEMINI_ORCHESTRATOR_MODEL:-gemini-2.5-flash}
+      - GEMINI_ER_MODEL=${GEMINI_ER_MODEL:-gemini-robotics-er-1.5-preview}
+      - GEMINI_LIVE_MODEL=${GEMINI_LIVE_MODEL:-gemini-2.5-flash}
     env_file: .env
     volumes:
       - ./backend/src:/app/src  # Development mount for code changes
       - ./backend/src/data/flow:/app/flows  # Persist flow definitions
+      - ./backend/src/data/orchestrator/runs:/app/runs  # Persist orchestrator runs
       - ./backend/weights:/app/weights  # YOLO model weights
     deploy:
       resources:

@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "global_limits": {
+    "min_z": 0.06,
+    "max_z": 0.42
+  },
+  "robot": {
+    "type": "ur",
+    "safety_margin_z": 0.03
+  },
+  "workspace": {
+    "x_min": -0.25,
+    "x_max": 0.25,
+    "y_min": -0.35,
+    "y_max": 0.35
+  },
+  "zones": {
+    "default": {
+      "grasp_z": 0.12,
+      "place_z": 0.16,
+      "default": {
+        "grasp_z": 0.12,
+        "place_z": 0.16
+      },
+      "objects": {
+        "box": {
+          "grasp_z": 0.11,
+          "place_z": 0.16
+        },
+        "pallet": {
+          "grasp_z": 0.10,
+          "place_z": 0.18
+        }
+      }
+    },
+    "Zone_A": {
+      "grasp_z": 0.11,
+      "place_z": 0.18,
+      "default": {
+        "grasp_z": 0.11,
+        "place_z": 0.18
+      },
+      "objects": {
+        "box": {
+          "grasp_z": 0.10,
+          "place_z": 0.18
+        }
+      }
+    },
+    "Zone_B": {
+      "grasp_z": 0.11,
+      "place_z": 0.17,
+      "default": {
+        "grasp_z": 0.11,
+        "place_z": 0.17
+      },
+      "objects": {
+        "box": {
+          "grasp_z": 0.10,
+          "place_z": 0.17
+        }
+      }
+    },
+    "Zone_C": {
+      "grasp_z": 0.11,
+      "place_z": 0.19,
+      "default": {
+        "grasp_z": 0.11,
+        "place_z": 0.19
+      },
+      "objects": {
+        "box": {
+          "grasp_z": 0.10,
+          "place_z": 0.19
+        }
+      }
+    }
+  }
+}

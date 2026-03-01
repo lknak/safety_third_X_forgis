@@ -118,6 +118,19 @@ export type ServerMessage =
   | { type: "waiting_condition"; flow_id: string; state: string; timestamp: number }
   | { type: "camera_frame"; frame: string; width: number; height: number; timestamp: number }
   | { type: "bounding_box"; bbox: BoundingBox; frame_width: number; frame_height: number; display_duration_ms: number; timestamp: number }
+  | { type: "orchestrator_state_transition"; from_state: string; to_state: string; reason: string; timestamp: number }
+  | { type: "orchestrator_task_queued"; task_id: string; flow_id: string; instruction: string; queue_position: number; timestamp: number }
+  | { type: "orchestrator_run_completed"; flow_id: string; final_status: string; error?: string; timestamp: number }
+  | { type: "orchestrator_replanned"; flow_id: string; reason: string; action: string; subgoals: Array<Record<string, unknown>>; timestamp: number }
+  | { type: "orchestrator_goal_change_requested"; flow_id: string; goal: string; timestamp: number }
+  | { type: "orchestrator_goal_change_applied"; flow_id: string; goal: string; timestamp: number }
+  | { type: "orchestrator_node_started"; flow_id: string; node_name: string; node_type: OrchestratorNodeType; timestamp: number }
+  | { type: "orchestrator_node_finished"; flow_id: string; node_name: string; node_type: OrchestratorNodeType; status: OrchestratorNodeStatus; duration_ms: number; artifacts: Record<string, unknown>; timestamp: number }
+  | { type: "orchestrator_tile_focus"; flow_id: string; active_node: string; primary_tile: string; timestamp: number }
+  | { type: "orchestrator_clarification_requested"; flow_id: string; node_name: string; reason: string; timeout_seconds: number; choices: Array<"retry" | "replan" | "modify_goal" | "safe_stop">; timestamp: number }
+  | { type: "orchestrator_clarification_resolved"; flow_id: string; action: "retry" | "replan" | "modify_goal" | "safe_stop"; note?: string; timestamp: number }
+  | { type: "orchestrator_clarification_timeout"; flow_id: string; node_name: string; timestamp: number }
+  | { type: "orchestrator_live_chunk"; flow_id: string; node_name: string; text: string; audio_chunk: string; focus_regions?: Array<Record<string, unknown>>; timestamp: number }
   | { type: "pong" };
 
 // ── Bounding box types ─────────────────────────────────────
@@ -136,6 +149,27 @@ export interface BoundingBoxOverlay {
   frameWidth: number;
   frameHeight: number;
   expiresAt: number;
+}
+
+export type OrchestratorNodeType =
+  | "INPUT_NODE"
+  | "ORCHESTRATOR_PLANNER_NODE"
+  | "ER_1_5_ANALYSIS_NODE"
+  | "DEPTH_ESTIMATION_NODE"
+  | "ROBOT_EXECUTION_NODE"
+  | "GEMINI_LIVE_COMMENTARY_NODE"
+  | "VERIFICATION_NODE"
+  | "SUMMARY_NODE";
+
+export type OrchestratorNodeStatus = "SUCCESS" | "FAILURE" | "TIMEOUT";
+
+export interface OrchestratorTile {
+  name: string;
+  type: OrchestratorNodeType;
+  status: OrchestratorNodeStatus | "PENDING" | "RUNNING";
+  startTime?: number;
+  endTime?: number;
+  artifacts?: Record<string, unknown>;
 }
 /**
  * Props for the generic ContentPanel component
@@ -158,4 +192,3 @@ export interface ContentPanelProps {
   /** Enable scrolling in content area (default: true) */
   scrollable?: boolean;
 }
-
