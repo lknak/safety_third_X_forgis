@@ -12,6 +12,7 @@ from orchestrator.schemas import (
     NodeType,
     PlanResult,
     FlowRunNodeRecord,
+    MicroPlan,
 )
 
 
@@ -126,5 +127,85 @@ async def test_engine_processes_queued_task_with_mocked_runner(tmp_path, safe_co
     )
     assert not ok
     assert "No pending clarification" in decision_message
+
+    await engine.stop()
+
+
+@pytest.mark.asyncio
+async def test_engine_executes_agentic_loop_until_task_complete(tmp_path, safe_config):
+    ws = FakeWS()
+    executors = {
+        "robot": FakeExecutor(),
+        "camera": FakeExecutor(),
+    }
+
+    engine = OrchestratorEngine(
+        executors=executors,
+        ws_manager=ws,
+        runs_dir=str(tmp_path / "runs"),
+        safe_z_config_path=safe_config,
+        queue_limit=3,
+        retention=200,
+    )
+
+    async def fake_health_check():
+        return True, "OK"
+
+    async def fake_plan(instruction: str, cell_state: dict):
+        return PlanResult(
+            subgoals=[{"id": "agentic_loop", "description": instruction}],
+            assumptions=["dynamic task"],
+            nodes=[],
+            is_agentic=True,
+        )
+
+    async def fake_plan_next_step(goal: str, scene_analysis: dict, history: list, cell_state: dict, iteration: int):
+        return MicroPlan(
+            task_complete=True,
+            reasoning="No remaining objects.",
+            scene_summary="Workspace clear",
+            progress={"completed": 1, "estimated_remaining": 0, "notes": "done"},
+            skills=[],
+        )
+
+    async def fake_execute_node(node: NodePlan, context: dict):
+        now = time.time()
+        if node.type == NodeType.ORCHESTRATOR_PLANNER_NODE:
+            context["plan_result"] = await fake_plan(context["instruction"], context.get("cell_state", {}))
+            context["plan_nodes"] = list(context["plan_result"].nodes)
+        return FlowRunNodeRecord(
+            name=node.name,
+            type=node.type,
+            status=NodeResultStatus.SUCCESS,
+            start_time=now,
+            end_time=now,
+            timeout_ms=node.timeout_ms,
+            artifacts={"result": {"analysis": {"objects": [], "answer": "clear"}}},
+        )
+
+    engine._gemini.health_check = fake_health_check  # type: ignore[attr-defined]
+    engine._planner.plan = fake_plan  # type: ignore[assignment]
+    engine._planner.plan_next_step = fake_plan_next_step  # type: ignore[assignment]
+    engine._runner.execute_node = fake_execute_node  # type: ignore[assignment]
+
+    await engine.start()
+    accepted, _, task, _preview = await engine.enqueue_task("segregate all bars")
+    assert accepted
+    assert task is not None
+
+    deadline = time.time() + 3
+    while time.time() < deadline:
+        runs = engine.list_runs(limit=10)
+        if runs:
+            break
+        await asyncio.sleep(0.05)
+
+    runs = engine.list_runs(limit=10)
+    assert len(runs) >= 1
+    run = runs[0]
+    assert run.final_status == "SUCCESS"
+    assert any(node.type == NodeType.CAPTURE_IMAGE for node in run.nodes)
+    assert any(node.type == NodeType.ANALYZE_SCENE for node in run.nodes)
+    assert run.nodes[-1].type == NodeType.SUMMARY_NODE
 
     await engine.stop()

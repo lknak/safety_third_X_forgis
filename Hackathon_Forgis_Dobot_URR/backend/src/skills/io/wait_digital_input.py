@@ -34,7 +34,7 @@ class WaitDigitalInputParams(BaseModel):
 class WaitDigitalInputSkill(Skill[WaitDigitalInputParams]):
     """Wait for a digital input pin to reach a specific state."""
 
-    name = "wait_digital_input"
+    name = "io_wait_digital_input"
     executor_type = "io_robot"
     description = "Wait for a digital input to become HIGH or LOW"
 

@@ -1,7 +1,7 @@
 """Primitive skills — the minimal generalist skill set for the orchestrator.
 
-15 skills across 5 layers:
-  Perception:  capture_image, analyze_scene, estimate_grasp_pose
+16 skills across 5 layers:
+  Perception:  capture_image, analyze_scene, estimate_grasp_pose, depth_estimation
   Reasoning:   llm_reason, live_narrate
   Motion:      move_to_pose, move_joints, jog_joints, get_robot_state
   Actuation:   suction_on, suction_off, set_digital_output, wait_digital_input
@@ -12,6 +12,7 @@
 from .capture_image import CaptureImageSkill
 from .analyze_scene import AnalyzeSceneSkill
 from .estimate_grasp_pose import EstimateGraspPoseSkill
+from .depth_estimation import DepthEstimationSkill
 
 # Reasoning
 from .llm_reason import LLMReasonSkill
@@ -37,6 +38,7 @@ __all__ = [
     "CaptureImageSkill",
     "AnalyzeSceneSkill",
     "EstimateGraspPoseSkill",
+    "DepthEstimationSkill",
     "LLMReasonSkill",
     "LiveNarrateSkill",
     "MoveToPoseSkill",
@@ -73,6 +75,13 @@ PRIMITIVE_SKILL_CATALOG = [
         "description": "Convert a 2D bounding box + object class into a 3D robot-frame grasp pose using monocular depth estimation and workspace calibration.",
         "params": {"bbox": "{x,y,w,h}", "object_class": "str", "depth_hint_m": "optional float"},
         "returns": "grasp_pose [x,y,z,rx,ry,rz], approach_pose, place_pose",
+    },
+    {
+        "name": "depth_estimation",
+        "layer": "perception",
+        "description": "Estimate 3D depth of an object from monocular camera using VLM spatial reasoning or monocular depth model.",
+        "params": {"bbox": "optional {x,y,w,h}", "object_class": "str", "image_b64": "optional"},
+        "returns": "estimated_depth_m, approach_z, z_clamp",
     },
     {
         "name": "llm_reason",
@@ -159,3 +168,4 @@ PRIMITIVE_SKILL_CATALOG = [
         "returns": "verified (bool), reasoning, confidence",
     },
 ]
+

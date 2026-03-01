@@ -33,6 +33,8 @@ from .store import FlowRunStore
 
 logger = logging.getLogger(__name__)
 
+AGENTIC_MAX_ITERATIONS = 50
+
 
 class OrchestratorEngine:
     """Deterministic always-on orchestrator supervisor."""
@@ -342,8 +344,26 @@ class OrchestratorEngine:
                 return run
 
         plan_result: PlanResult = context.get("plan_result")
-        planned_nodes = list(plan_result.nodes)
+        if plan_result.is_agentic:
+            await self._execute_agentic_loop(run=run, task=task, context=context)
+            return run
 
+        await self._execute_static_plan(
+            run=run,
+            task=task,
+            context=context,
+            planned_nodes=list(plan_result.nodes),
+        )
+        return run
+
+    async def _execute_static_plan(
+        self,
+        run: FlowRunRecord,
+        task: OrchestratorTask,
+        context: dict[str, Any],
+        planned_nodes: list[NodePlan],
+    ) -> None:
+        """Execute a static list of planned nodes (legacy/default mode)."""
         idx = 0
         while idx < len(planned_nodes):
             # Mid-run goal change hook.
@@ -353,7 +373,7 @@ class OrchestratorEngine:
                 if not proceed:
                     run.final_status = "ABORTED"
                     run.completed_at = time.time()
-                    return run
+                    return
                 planned_nodes = new_nodes
                 idx = 0
                 continue
@@ -403,7 +423,7 @@ class OrchestratorEngine:
                     )
                     if not proceed:
                         run.completed_at = time.time()
-                        return run
+                        return
                     planned_nodes = replanned
                     idx = 0
                     continue
@@ -423,7 +443,7 @@ class OrchestratorEngine:
                 )
                 if not proceed:
                     run.completed_at = time.time()
-                    return run
+                    return
                 planned_nodes = replanned
                 idx = 0
                 continue
@@ -439,7 +459,235 @@ class OrchestratorEngine:
                 "final_status": run.final_status,
             },
         )
-        return run
+
+    async def _execute_agentic_loop(
+        self,
+        run: FlowRunRecord,
+        task: OrchestratorTask,
+        context: dict[str, Any],
+    ) -> None:
+        """Observe-reason-act loop for dynamic, variable-length tasks."""
+        context.setdefault("agentic_history", [])
+        context.setdefault("agentic_planned_nodes", [])
+
+        for iteration in range(1, AGENTIC_MAX_ITERATIONS + 1):
+            # Agentic goal changes are applied immediately and used in next reasoning step.
+            if task.flow_id in self._goal_change_requests:
+                updated_goal = self._goal_change_requests.pop(task.flow_id)
+                task.instruction = updated_goal
+                context["instruction"] = updated_goal
+                self._emit(
+                    "orchestrator_goal_change_applied",
+                    {
+                        "flow_id": run.flow_id,
+                        "goal": updated_goal,
+                    },
+                )
+
+            scene_analysis = await self._observe_scene_for_agentic(
+                run=run,
+                task=task,
+                context=context,
+                iteration=iteration,
+            )
+            if scene_analysis is None:
+                context.setdefault("deviations", []).append(
+                    {
+                        "iteration": iteration,
+                        "reason": "observation_failed",
+                    }
+                )
+                continue
+
+            micro_plan = await self._planner.plan_next_step(
+                goal=task.instruction,
+                scene_analysis=scene_analysis,
+                history=context.get("agentic_history", []),
+                cell_state=self._cell_state_snapshot(),
+                iteration=iteration,
+            )
+            context["last_micro_plan"] = micro_plan.model_dump()
+
+            self._emit(
+                "orchestrator_agentic_micro_plan",
+                {
+                    "flow_id": run.flow_id,
+                    "iteration": iteration,
+                    "task_complete": micro_plan.task_complete,
+                    "reasoning": micro_plan.reasoning,
+                    "scene_summary": micro_plan.scene_summary,
+                    "progress": micro_plan.progress,
+                },
+            )
+
+            if micro_plan.task_complete:
+                context["plan_nodes"] = list(context.get("agentic_planned_nodes", []))
+                summary_plan = NodePlan(
+                    name="summary",
+                    type=NodeType.SUMMARY_NODE,
+                    timeout_ms=10000,
+                    payload={},
+                )
+                summary_record = await self._execute_with_timeout(summary_plan, context)
+                run.nodes.append(summary_record)
+                if summary_record.status != NodeResultStatus.SUCCESS:
+                    await self._finalize_failed_run(run, summary_record)
+                    return
+
+                run.final_status = "SUCCESS"
+                run.completed_at = time.time()
+                self._emit(
+                    "orchestrator_run_completed",
+                    {
+                        "flow_id": run.flow_id,
+                        "final_status": run.final_status,
+                        "iterations": iteration,
+                    },
+                )
+                return
+
+            micro_nodes = self._planner.micro_plan_to_nodes(micro_plan, iteration)
+            if not micro_nodes:
+                run.final_status = "FAILURE"
+                run.error_message = (
+                    "Agentic planner returned empty micro-plan while task was not complete."
+                )
+                run.completed_at = time.time()
+                self._emit(
+                    "orchestrator_run_completed",
+                    {
+                        "flow_id": run.flow_id,
+                        "final_status": run.final_status,
+                        "error": run.error_message,
+                    },
+                )
+                return
+
+            context["agentic_planned_nodes"].extend(micro_nodes)
+
+            micro_failed = False
+            for node in micro_nodes:
+                record = await self._execute_with_timeout(node, context)
+                run.nodes.append(record)
+                self._append_agentic_history(context, node, record)
+
+                if record.status != NodeResultStatus.SUCCESS:
+                    context.setdefault("deviations", []).append(
+                        {
+                            "iteration": iteration,
+                            "node": node.name,
+                            "reason": record.artifacts.get("error", "node_failed"),
+                        }
+                    )
+                    micro_failed = True
+                    break
+
+            # Failure is handled by the next observe-reason-act iteration (fresh perception).
+            if micro_failed:
+                continue
+
+        run.final_status = "TIMEOUT"
+        run.error_message = (
+            f"Agentic loop exceeded iteration limit ({AGENTIC_MAX_ITERATIONS})."
+        )
+        run.completed_at = time.time()
+        self._emit(
+            "orchestrator_run_completed",
+            {
+                "flow_id": run.flow_id,
+                "final_status": run.final_status,
+                "error": run.error_message,
+            },
+        )
+
+    async def _observe_scene_for_agentic(
+        self,
+        run: FlowRunRecord,
+        task: OrchestratorTask,
+        context: dict[str, Any],
+        iteration: int,
+    ) -> Optional[dict[str, Any]]:
+        """Run one observation cycle and return current scene analysis."""
+        observe_nodes = [
+            NodePlan(
+                name=f"iter{iteration}_observe_capture_image",
+                type=NodeType.CAPTURE_IMAGE,
+                timeout_ms=10000,
+                payload={
+                    "skill_name": "capture_image",
+                    "params": {},
+                    "description": f"Iteration {iteration}: capture current scene",
+                    "step_index": 1,
+                    "step_count": 2,
+                },
+            ),
+            NodePlan(
+                name=f"iter{iteration}_observe_analyze_scene",
+                type=NodeType.ANALYZE_SCENE,
+                timeout_ms=30000,
+                payload={
+                    "skill_name": "analyze_scene",
+                    "params": {
+                        "query": (
+                            "Describe all relevant objects and placement state for goal: "
+                            f"{task.instruction}"
+                        )
+                    },
+                    "description": f"Iteration {iteration}: analyze current scene",
+                    "step_index": 2,
+                    "step_count": 2,
+                },
+            ),
+        ]
+        context["agentic_planned_nodes"].extend(observe_nodes)
+
+        scene_analysis: Optional[dict[str, Any]] = None
+        for node in observe_nodes:
+            record = await self._execute_with_timeout(node, context)
+            run.nodes.append(record)
+            self._append_agentic_history(context, node, record)
+
+            if record.status != NodeResultStatus.SUCCESS:
+                return None
+
+            if node.type == NodeType.ANALYZE_SCENE:
+                result_payload = record.artifacts.get("result", {})
+                if isinstance(result_payload, dict):
+                    analysis = result_payload.get("analysis")
+                    if isinstance(analysis, dict):
+                        scene_analysis = analysis
+
+        if scene_analysis is None:
+            return None
+
+        context.setdefault("observations", []).append(
+            {
+                "iteration": iteration,
+                "scene_summary": scene_analysis.get("answer", ""),
+                "object_count": len(scene_analysis.get("objects", []))
+                if isinstance(scene_analysis.get("objects"), list)
+                else 0,
+            }
+        )
+        return scene_analysis
+
+    @staticmethod
+    def _append_agentic_history(
+        context: dict[str, Any],
+        node: NodePlan,
+        record: FlowRunNodeRecord,
+    ) -> None:
+        """Store compact execution history for next-step reasoning."""
+        entry = {
+            "name": node.name,
+            "type": node.type.value,
+            "status": record.status.value,
+            "description": node.payload.get("description", ""),
+        }
+        error = record.artifacts.get("error")
+        if error:
+            entry["error"] = str(error)
+        context.setdefault("agentic_history", []).append(entry)
 
     async def _execute_with_timeout(
         self,

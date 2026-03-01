@@ -31,6 +31,7 @@ _NODE_TO_SKILL: dict[NodeType, str] = {
     NodeType.CAPTURE_IMAGE: "capture_image",
     NodeType.ANALYZE_SCENE: "analyze_scene",
     NodeType.ESTIMATE_GRASP_POSE: "estimate_grasp_pose",
+    NodeType.DEPTH_ESTIMATION: "depth_estimation",
     NodeType.LLM_REASON: "llm_reason",
     NodeType.LIVE_NARRATE: "live_narrate",
     NodeType.MOVE_TO_POSE: "move_to_pose",
@@ -165,7 +166,14 @@ class NodeRunner:
             return {"error": f"Skill '{skill_name}' not registered"}, NodeResultStatus.FAILURE
 
         # Build execution context
-        params_dict = plan.payload.get("params", {})
+        params_dict = dict(plan.payload.get("params", {}))
+        if skill_name == "estimate_grasp_pose" and "depth_hint_m" not in params_dict:
+            last_depth = context.setdefault("variables", {}).get("last_depth_estimation")
+            if isinstance(last_depth, dict):
+                depth_value = last_depth.get("estimated_depth_m")
+                if isinstance(depth_value, (int, float)):
+                    params_dict["depth_hint_m"] = float(depth_value)
+
         exec_context = ExecutionContext(
             flow_id=context["flow_id"],
             step_id=plan.name,

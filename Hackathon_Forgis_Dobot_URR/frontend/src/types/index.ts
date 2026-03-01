@@ -154,12 +154,30 @@ export interface BoundingBoxOverlay {
 export type OrchestratorNodeType =
   | "INPUT_NODE"
   | "ORCHESTRATOR_PLANNER_NODE"
+  | "SUMMARY_NODE"
+  | "CAPTURE_IMAGE"
+  | "ANALYZE_SCENE"
+  | "ESTIMATE_GRASP_POSE"
+  | "DEPTH_ESTIMATION"
+  | "LLM_REASON"
+  | "LIVE_NARRATE"
+  | "MOVE_TO_POSE"
+  | "MOVE_JOINTS"
+  | "JOG_JOINTS"
+  | "GET_ROBOT_STATE"
+  | "SUCTION_ON"
+  | "SUCTION_OFF"
+  | "SET_DIGITAL_OUTPUT"
+  | "WAIT_DIGITAL_INPUT"
+  | "WAIT"
+  | "VERIFY_OUTCOME"
+  // Legacy aliases retained for backward compatibility with historical runs
   | "ER_1_5_ANALYSIS_NODE"
   | "DEPTH_ESTIMATION_NODE"
   | "ROBOT_EXECUTION_NODE"
   | "GEMINI_LIVE_COMMENTARY_NODE"
   | "VERIFICATION_NODE"
-  | "SUMMARY_NODE";
+  | "JOG_JOINTS_NODE";
 
 export type OrchestratorNodeStatus = "SUCCESS" | "FAILURE" | "TIMEOUT";
 
@@ -170,6 +188,22 @@ export interface OrchestratorTile {
   startTime?: number;
   endTime?: number;
   artifacts?: Record<string, unknown>;
+}
+
+export interface PlannedOrchestratorNode {
+  name: string;
+  type: OrchestratorNodeType;
+  order: number;
+}
+
+export type OrchestratorTilePhase = "past" | "active" | "future";
+
+export interface OrchestratorTimelineTile extends OrchestratorTile {
+  order: number;
+  phase: OrchestratorTilePhase;
+  isActive: boolean;
+  durationMs: number | null;
+  hasArtifacts: boolean;
 }
 /**
  * Props for the generic ContentPanel component

@@ -21,7 +21,7 @@ class OrchestratorState(str, Enum):
 
 
 class NodeType(str, Enum):
-    """Strict node taxonomy — 15 primitive skills + 3 meta-nodes."""
+    """Strict node taxonomy — 16 primitive skills + 3 meta-nodes."""
 
     # Meta-nodes (orchestrator infrastructure)
     INPUT_NODE = "INPUT_NODE"
@@ -32,6 +32,7 @@ class NodeType(str, Enum):
     CAPTURE_IMAGE = "CAPTURE_IMAGE"
     ANALYZE_SCENE = "ANALYZE_SCENE"
     ESTIMATE_GRASP_POSE = "ESTIMATE_GRASP_POSE"
+    DEPTH_ESTIMATION = "DEPTH_ESTIMATION"
 
     # Layer 2 — Reasoning / AI
     LLM_REASON = "LLM_REASON"
@@ -162,6 +163,40 @@ class PlanResult(BaseModel):
     subgoals: list[dict[str, Any]] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
     nodes: list[NodePlan] = Field(default_factory=list)
+    is_agentic: bool = Field(
+        default=False,
+        description="If True, engine uses the agentic observe-reason-act loop instead of static plan.",
+    )
+
+
+class MicroPlan(BaseModel):
+    """Single iteration output from the agentic planner.
+
+    Returned by plan_next_step(). Contains either one micro-task
+    (a short skill sequence for one logical action) or a
+    task_complete signal.
+    """
+
+    task_complete: bool = Field(
+        default=False,
+        description="True when the overall goal is achieved — engine exits loop.",
+    )
+    reasoning: str = Field(
+        default="",
+        description="Gemini's explanation of what it sees and why it chose this action.",
+    )
+    skills: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Ordered skill dicts for this micro-task: [{skill, params, description}].",
+    )
+    progress: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Progress tracking: {completed, estimated_remaining, notes}.",
+    )
+    scene_summary: str = Field(
+        default="",
+        description="Short summary of the current scene state for logging.",
+    )
 
 
 class EngineStateSnapshot(BaseModel):

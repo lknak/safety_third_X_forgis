@@ -1,17 +1,42 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFlowSocket } from "@/api/flowSocket";
 import { submitOrchestratorDecision } from "@/api/orchestratorApi";
-import type { OrchestratorTile, OrchestratorNodeType, OrchestratorNodeStatus, ServerMessage } from "@/types";
+import type {
+  OrchestratorTile,
+  OrchestratorNodeType,
+  OrchestratorNodeStatus,
+  OrchestratorTimelineTile,
+  PlannedOrchestratorNode,
+  ServerMessage,
+} from "@/types";
 
-const ORDERED_NODE_TYPES: OrchestratorNodeType[] = [
+const DEFAULT_NODE_TYPE_ORDER: OrchestratorNodeType[] = [
   "INPUT_NODE",
   "ORCHESTRATOR_PLANNER_NODE",
+  "CAPTURE_IMAGE",
+  "ANALYZE_SCENE",
+  "ESTIMATE_GRASP_POSE",
+  "DEPTH_ESTIMATION",
+  "LLM_REASON",
+  "LIVE_NARRATE",
+  "MOVE_TO_POSE",
+  "MOVE_JOINTS",
+  "JOG_JOINTS",
+  "GET_ROBOT_STATE",
+  "SUCTION_ON",
+  "SUCTION_OFF",
+  "SET_DIGITAL_OUTPUT",
+  "WAIT_DIGITAL_INPUT",
+  "WAIT",
+  "VERIFY_OUTCOME",
+  "SUMMARY_NODE",
+  // Legacy aliases retained for historical data compatibility
   "ER_1_5_ANALYSIS_NODE",
   "DEPTH_ESTIMATION_NODE",
   "ROBOT_EXECUTION_NODE",
   "GEMINI_LIVE_COMMENTARY_NODE",
   "VERIFICATION_NODE",
-  "SUMMARY_NODE",
+  "JOG_JOINTS_NODE",
 ];
 
 function statusFromNode(status: OrchestratorNodeStatus): OrchestratorTile["status"] {
@@ -20,9 +45,28 @@ function statusFromNode(status: OrchestratorNodeStatus): OrchestratorTile["statu
   return "TIMEOUT";
 }
 
-export function useOrchestratorRun(activeFlowId: string | null) {
+function typeOrder(type: OrchestratorNodeType): number {
+  const idx = DEFAULT_NODE_TYPE_ORDER.indexOf(type);
+  return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
+}
+
+function seedTiles(plannedNodes: PlannedOrchestratorNode[]): OrchestratorTile[] {
+  return [...plannedNodes]
+    .sort((a, b) => a.order - b.order)
+    .map((node) => ({
+      name: node.name,
+      type: node.type,
+      status: "PENDING",
+    }));
+}
+
+export function useOrchestratorRun(
+  activeFlowId: string | null,
+  plannedNodes: PlannedOrchestratorNode[],
+) {
   const [tiles, setTiles] = useState<OrchestratorTile[]>([]);
   const [activeNodeName, setActiveNodeName] = useState<string | null>(null);
+  const [inspectionNodeName, setInspectionNodeName] = useState<string | null>(null);
   const [liveText, setLiveText] = useState<string>("");
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [clarification, setClarification] = useState<{
@@ -36,6 +80,49 @@ export function useOrchestratorRun(activeFlowId: string | null) {
   const audioQueue = useRef<string[]>([]);
   const playingRef = useRef(false);
   const socketRef = useRef<{ close: () => void } | null>(null);
+  const runtimeOrderMapRef = useRef<Map<string, number>>(new Map());
+  const nextRuntimeOrderRef = useRef(0);
+
+  const plannedOrderMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const planned of plannedNodes) {
+      map.set(planned.name, planned.order);
+    }
+    return map;
+  }, [plannedNodes]);
+
+  const initialTiles = useMemo(() => seedTiles(plannedNodes), [plannedNodes]);
+
+  const getOrder = useCallback((name: string, type: OrchestratorNodeType): number => {
+    const plannedOrder = plannedOrderMap.get(name);
+    if (plannedOrder !== undefined) {
+      return plannedOrder;
+    }
+
+    const orderMap = runtimeOrderMapRef.current;
+    const existing = orderMap.get(name);
+    if (existing !== undefined) {
+      return existing;
+    }
+
+    const fallback = nextRuntimeOrderRef.current + typeOrder(type);
+    nextRuntimeOrderRef.current += 1;
+    orderMap.set(name, fallback);
+    return fallback;
+  }, [plannedOrderMap]);
+
+  const sortTiles = useCallback((items: OrchestratorTile[]): OrchestratorTile[] => {
+    const next = [...items];
+    next.sort((a, b) => {
+      const aOrder = getOrder(a.name, a.type);
+      const bOrder = getOrder(b.name, b.type);
+      if (aOrder !== bOrder) {
+        return aOrder - bOrder;
+      }
+      return typeOrder(a.type) - typeOrder(b.type);
+    });
+    return next;
+  }, [getOrder]);
 
   const updateTile = useCallback((name: string, update: Partial<OrchestratorTile>) => {
     setTiles((prev) => {
@@ -52,10 +139,9 @@ export function useOrchestratorRun(activeFlowId: string | null) {
         });
       }
 
-      next.sort((a, b) => ORDERED_NODE_TYPES.indexOf(a.type) - ORDERED_NODE_TYPES.indexOf(b.type));
-      return next;
+      return sortTiles(next);
     });
-  }, []);
+  }, [sortTiles]);
 
   const processAudioQueue = useCallback(async () => {
     if (playingRef.current) return;
@@ -90,6 +176,7 @@ export function useOrchestratorRun(activeFlowId: string | null) {
     switch (msg.type) {
       case "orchestrator_node_started":
         setActiveNodeName(msg.node_name);
+        setInspectionNodeName(null);
         updateTile(msg.node_name, {
           type: msg.node_type,
           status: "RUNNING",
@@ -104,13 +191,12 @@ export function useOrchestratorRun(activeFlowId: string | null) {
           endTime: msg.timestamp,
           artifacts: msg.artifacts,
         });
-        if (activeNodeName === msg.node_name) {
-          setActiveNodeName(null);
-        }
+        setActiveNodeName((current) => (current === msg.node_name ? null : current));
         break;
 
       case "orchestrator_tile_focus":
         setActiveNodeName(msg.active_node);
+        setInspectionNodeName(null);
         break;
 
       case "orchestrator_live_chunk":
@@ -141,15 +227,21 @@ export function useOrchestratorRun(activeFlowId: string | null) {
       default:
         break;
     }
-  }, [activeFlowId, activeNodeName, processAudioQueue, updateTile]);
+  }, [activeFlowId, processAudioQueue, updateTile]);
 
   useEffect(() => {
-    setTiles([]);
+    runtimeOrderMapRef.current.clear();
+    nextRuntimeOrderRef.current = initialTiles.length;
+    setTiles(activeFlowId ? initialTiles : []);
     setActiveNodeName(null);
+    setInspectionNodeName(null);
     setLiveText("");
     setClarification(null);
     audioQueue.current = [];
+    playingRef.current = false;
+  }, [activeFlowId, initialTiles]);
 
+  useEffect(() => {
     socketRef.current?.close();
     socketRef.current = null;
 
@@ -192,22 +284,93 @@ export function useOrchestratorRun(activeFlowId: string | null) {
     setClarification(null);
   }, [clarification]);
 
+  const orderedTilesBase = useMemo(() => sortTiles(tiles), [sortTiles, tiles]);
+
   const tileByName = useMemo(() => {
     const map = new Map<string, OrchestratorTile>();
-    for (const tile of tiles) {
+    for (const tile of orderedTilesBase) {
       map.set(tile.name, tile);
     }
     return map;
-  }, [tiles]);
+  }, [orderedTilesBase]);
+
+  const completedTiles = useMemo(
+    () =>
+      orderedTilesBase.filter(
+        (tile) => tile.status === "SUCCESS" || tile.status === "FAILURE" || tile.status === "TIMEOUT",
+      ),
+    [orderedTilesBase],
+  );
+
+  const heroNodeName = useMemo(() => {
+    if (inspectionNodeName && tileByName.has(inspectionNodeName)) {
+      return inspectionNodeName;
+    }
+    if (activeNodeName && tileByName.has(activeNodeName)) {
+      return activeNodeName;
+    }
+    if (completedTiles.length > 0) {
+      return completedTiles[completedTiles.length - 1].name;
+    }
+    return orderedTilesBase[0]?.name ?? null;
+  }, [activeNodeName, completedTiles, inspectionNodeName, orderedTilesBase, tileByName]);
+
+  const phaseAnchorName = activeNodeName ?? heroNodeName;
+  const phaseAnchorIndex = orderedTilesBase.findIndex((tile) => tile.name === phaseAnchorName);
+
+  const orderedTiles = useMemo<OrchestratorTimelineTile[]>(
+    () =>
+      orderedTilesBase.map((tile, index) => {
+        let phase: OrchestratorTimelineTile["phase"] = "future";
+        if (phaseAnchorIndex >= 0) {
+          if (index < phaseAnchorIndex) phase = "past";
+          else if (index === phaseAnchorIndex) phase = "active";
+        }
+
+        return {
+          ...tile,
+          order: getOrder(tile.name, tile.type),
+          phase,
+          isActive: phase === "active",
+          durationMs: tile.startTime && tile.endTime ? Math.max(0, (tile.endTime - tile.startTime) * 1000) : null,
+          hasArtifacts: !!tile.artifacts && Object.keys(tile.artifacts).length > 0,
+        };
+      }),
+    [getOrder, orderedTilesBase, phaseAnchorIndex],
+  );
+
+  const activeTile = heroNodeName
+    ? orderedTiles.find((tile) => tile.name === heroNodeName) ?? null
+    : null;
+
+  const pastTiles = useMemo(
+    () => orderedTiles.filter((tile) => tile.phase === "past"),
+    [orderedTiles],
+  );
+
+  const futureTiles = useMemo(
+    () => orderedTiles.filter((tile) => tile.phase === "future"),
+    [orderedTiles],
+  );
+
+  const inspectTile = useCallback((nodeName: string) => {
+    setInspectionNodeName((current) => (current === nodeName ? null : nodeName));
+  }, []);
 
   return {
     tiles,
+    orderedTiles,
+    activeTile,
+    pastTiles,
+    futureTiles,
     tileByName,
     activeNodeName,
+    heroNodeName,
     liveText,
     autoplayBlocked,
     armAudio,
     clarification,
     submitDecision,
+    inspectTile,
   };
 }
