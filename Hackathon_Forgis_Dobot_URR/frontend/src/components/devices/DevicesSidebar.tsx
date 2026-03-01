@@ -19,6 +19,11 @@ interface DevicesSidebarProps {
   onOpenDeviceDetail?: (device: Device) => void;
 }
 
+function normalizeStatus(status?: string): Device["status"] {
+  if (status === "connected" || status === "warning") return status;
+  return "disconnected";
+}
+
 export function DevicesSidebar({
   selectedStep,
   onDeselectStep,
@@ -31,19 +36,12 @@ export function DevicesSidebar({
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (devices.length === 0) {
-      setSelectedDeviceId(null);
-      return;
-    }
+  const effectiveSelectedDeviceId =
+    selectedDeviceId && devices.some((device: Device) => device.id === selectedDeviceId)
+      ? selectedDeviceId
+      : null;
 
-    const stillExists =
-      selectedDeviceId && devices.some((device: Device) => device.id === selectedDeviceId);
-    if (!stillExists) {
-      setSelectedDeviceId(null);
-    }
-  }, [devices, selectedDeviceId]);
-
+  // Poll health every 3 seconds and update device statuses
   useEffect(() => {
     let disposed = false;
 
@@ -59,20 +57,27 @@ export function DevicesSidebar({
             const updates: Partial<Device> = {};
 
             if (device.type === "robot" && healthData.robot) {
-              const connected = healthData.robot.status === "connected";
-              updates.status = healthData.robot.status;
-              updates.reachable = connected;
-              if (connected) updates.onlineSince = device.onlineSince ?? new Date().toISOString();
+              const status = normalizeStatus(healthData.robot.status);
+              updates.status = status;
+              updates.reachable = status !== "disconnected";
+              if (status !== "disconnected") {
+                updates.onlineSince = device.onlineSince ?? new Date().toISOString();
+              }
             } else if (device.type === "camera" && healthData.camera) {
-              const connected = healthData.camera.status === "connected";
-              updates.status = healthData.camera.status;
-              updates.reachable = connected;
-              if (connected) updates.onlineSince = device.onlineSince ?? new Date().toISOString();
+              const status = normalizeStatus(healthData.camera.status);
+              updates.status = status;
+              updates.reachable = status !== "disconnected";
+              if (status !== "disconnected") {
+                updates.onlineSince = device.onlineSince ?? new Date().toISOString();
+              }
+              if (healthData.camera.display_name) updates.name = healthData.camera.display_name;
             } else if (device.type === "gripper" && healthData.hand) {
-              const connected = healthData.hand.status === "connected";
-              updates.status = healthData.hand.status;
-              updates.reachable = connected;
-              if (connected) updates.onlineSince = device.onlineSince ?? new Date().toISOString();
+              const status = normalizeStatus(healthData.hand.status);
+              updates.status = status;
+              updates.reachable = status !== "disconnected";
+              if (status !== "disconnected") {
+                updates.onlineSince = device.onlineSince ?? new Date().toISOString();
+              }
             }
 
             if (Object.keys(updates).length > 0) {
@@ -166,7 +171,7 @@ export function DevicesSidebar({
                 <DeviceList
                   devices={group}
                   compact
-                  selectedId={selectedDeviceId}
+                  selectedId={effectiveSelectedDeviceId}
                   onSelect={(device: Device) => {
                     setSelectedDeviceId(device.id);
                     onOpenDeviceDetail?.(device);
@@ -191,7 +196,7 @@ export function DevicesSidebar({
                 <DeviceList
                   devices={group}
                   compact
-                  selectedId={selectedDeviceId}
+                  selectedId={effectiveSelectedDeviceId}
                   onSelect={(device: Device) => {
                     setSelectedDeviceId(device.id);
                     onOpenDeviceDetail?.(device);

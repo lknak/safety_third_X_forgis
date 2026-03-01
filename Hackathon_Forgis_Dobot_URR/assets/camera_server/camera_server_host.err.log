@@ -1,0 +1,4 @@
+2026-03-01 03:02:07,652 - INFO - WebSocket server starting on ws://0.0.0.0:8765
+2026-03-01 03:02:07,685 - INFO - server listening on 0.0.0.0:8765
+2026-03-01 03:02:07,841 - INFO - connection open
+2026-03-01 03:02:07,843 - INFO - Client connected: ('127.0.0.1', 55026)

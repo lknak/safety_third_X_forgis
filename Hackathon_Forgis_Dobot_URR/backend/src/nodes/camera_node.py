@@ -1,4 +1,4 @@
-"""ROS 2 node for generic camera image subscription (USB/topic/bridge)."""
+"""ROS 2 node for camera image subscription."""
 
 import os
 import threading
@@ -7,7 +7,7 @@ from typing import Optional
 import cv2
 import numpy as np
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image
 
 
@@ -26,7 +26,6 @@ class CameraNode(Node):
         self._frame_jpeg: Optional[bytes] = None
         self._frame_lock = threading.Lock()
 
-        # Default topic for USB camera publishers (can be overridden).
         self._image_topic = os.environ.get("CAMERA_IMAGE_TOPIC", "/image_raw")
 
         # QoS tuned for camera streams (BEST_EFFORT, low latency).
@@ -36,17 +35,8 @@ class CameraNode(Node):
             depth=1,
         )
 
-        # Subscribe to configured image topic.
-        self.create_subscription(
-            Image,
-            self._image_topic,
-            self._on_image,
-            qos,
-        )
-
-        self.get_logger().info(
-            f"CameraNode initialized — waiting for {self._image_topic}"
-        )
+        self.create_subscription(Image, self._image_topic, self._on_image, qos)
+        self.get_logger().info(f"CameraNode initialized - waiting for {self._image_topic}")
 
     def _on_image(self, msg: Image) -> None:
         """Convert ROS Image to OpenCV BGR numpy array and cache it + JPEG."""
@@ -64,55 +54,33 @@ class CameraNode(Node):
             )
             return
 
-        # Encode JPEG once and cache it alongside the raw frame
-        success, jpeg_data = cv2.imencode(
-            ".jpg", frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, 70]
-        )
+        success, jpeg_data = cv2.imencode(".jpg", frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, 70])
 
         with self._frame_lock:
             self._frame = frame_bgr
             if success:
                 self._frame_jpeg = jpeg_data.tobytes()
 
-        # Log periodically
-        if not hasattr(self, '_recv_count'):
+        if not hasattr(self, "_recv_count"):
             self._recv_count = 0
         self._recv_count += 1
         if self._recv_count % 100 == 0:
             self.get_logger().info(f"Received {self._recv_count} frames ({msg.width}x{msg.height})")
 
     def get_latest_frame(self) -> Optional[np.ndarray]:
-        """
-        Get the latest camera frame.
-
-        Returns:
-            BGR numpy array or None if no frame received yet.
-        """
+        """Get the latest camera frame as BGR numpy array."""
         with self._frame_lock:
             if self._frame is None:
                 return None
             return self._frame.copy()
 
     def get_frame_jpeg(self, quality: int = 80) -> Optional[bytes]:
-        """
-        Get the latest frame as JPEG bytes (cached, no re-encoding).
-
-        Args:
-            quality: JPEG quality (ignored, uses cached encode).
-
-        Returns:
-            JPEG bytes or None if no frame available.
-        """
+        """Get the latest frame as JPEG bytes (cached)."""
         with self._frame_lock:
             return self._frame_jpeg
 
     def get_frame_dimensions(self) -> Optional[tuple[int, int]]:
-        """
-        Get current frame dimensions.
-
-        Returns:
-            Tuple of (width, height) or None if no frame.
-        """
+        """Get current frame dimensions as (width, height)."""
         with self._frame_lock:
             if self._frame is None:
                 return None

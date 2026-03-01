@@ -1,7 +1,13 @@
-"""Hand skills for COVVI prosthetic hand control."""
+"""Pneumatic gripper skills (formerly hand skills)."""
 
-from .set_grip import SetGripSkill
-from .set_finger_positions import SetFingerPositionsSkill
-from .grip_until_contact import GripUntilContactSkill
+from .open_gripper import OpenGripperSkill
+from .close_gripper import CloseGripperSkill
+from .set_grip import SetGripSkill             # Compatibility layer
+from .set_finger_positions import SetFingerPositionsSkill  # Compatibility layer
 
-__all__ = ["SetGripSkill", "SetFingerPositionsSkill", "GripUntilContactSkill"]
+__all__ = [
+    "OpenGripperSkill",
+    "CloseGripperSkill",
+    "SetGripSkill",
+    "SetFingerPositionsSkill"
+]

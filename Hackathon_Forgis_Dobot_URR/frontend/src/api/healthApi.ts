@@ -4,6 +4,10 @@ export interface DeviceStatus {
     status: "connected" | "warning" | "disconnected";
     error?: string;
     suggestion?: string;
+    device_type?: "robot" | "camera" | "gripper" | "sensor" | string;
+    display_name?: string;
+    detected?: boolean;
+    source?: string;
 }
 
 export interface OverallHealth {

@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(powershell -Command \"Stop-Process -Id 14340 -Force\")",
+      "Bash(docker exec ur-driver which nc)",
+      "Bash(docker exec ur-driver which ncat)",
+      "Bash(docker exec ur-driver python3 -c \"print\\(''python works''\\)\")",
+      "Bash(docker compose up -d --build ur-driver)",
+      "Bash(curl -s http://localhost:8000/api/health)",
+      "Bash(python -m json.tool)",
+      "Bash(powershell -Command \"\\(Invoke-WebRequest -Uri ''http://localhost:8000/api/health'' -UseBasicParsing\\).Content\")",
+      "Bash(docker exec forgis-backend curl -s http://localhost:8000/api/health)",
+      "Bash(docker exec forgis-frontend curl -s http://host.docker.internal:8000/api/health)",
+      "Bash(docker exec forgis-frontend wget -qO- http://host.docker.internal:8000/api/health)",
+      "Bash(docker exec forgis-frontend cat /etc/hosts)",
+      "Bash(docker compose down --remove-orphans)",
+      "Bash(docker compose up -d --build)",
+      "Bash(docker exec ur-driver cat /app/fastdds.xml)",
+      "Bash(docker exec ur-driver ls -la /app/fastdds.xml)",
+      "Bash(docker exec ur-driver sh -c 'ls -la /app/fastdds.xml')",
+      "Bash(docker compose up -d ur-driver forgis-backend)",
+      "Bash(docker compose up -d ur-driver backend)",
+      "Bash(docker compose --profile ur down)",
+      "Bash(docker compose --profile ur up -d)",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:80)"
+    ]
+  }
+}

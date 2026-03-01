@@ -24,3 +24,6 @@ dist-ssr
 *.sw?
 
 public/frames/
+# Python cache
+__pycache__/
+*.py[cod]

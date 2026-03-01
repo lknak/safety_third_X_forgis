@@ -1,53 +1,65 @@
+networks:
+  ros:
+    driver: bridge
+
 services:
   # ── UR Robot Driver ──────────────────────────────────────────
-  # Enable with: docker compose --profile ur up
-  # Or set COMPOSE_PROFILES=ur in .env
   ur-driver:
-    profiles: [ur]
+    profiles: [ ur ]
     build: ./assets/urdriver
     container_name: ur-driver
-    network_mode: host
+    networks: [ ros ]
     ipc: host
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/app/fastdds.xml
     env_file: .env
+    volumes:
+      - ./assets/fastdds_driver.xml:/app/fastdds.xml:ro
     command: bash scripts/start_driver.sh
     restart: unless-stopped
-
 
   # ── DOBOT Nova 5 Driver ──────────────────────────────────────
-  # Enable with: docker compose --profile dobot up
-  # Or set COMPOSE_PROFILES=dobot in .env
   dobot-driver:
-    profiles: [dobot]
+    profiles: [ dobot ]
     build: ./assets/dobot-driver
     container_name: dobot-driver
-    network_mode: host
+    networks: [ ros ]
     ipc: host
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/app/fastdds.xml
     env_file: .env
+    volumes:
+      - ./assets/fastdds_driver.xml:/app/fastdds.xml:ro
     command: bash scripts/start_driver.sh
     restart: unless-stopped
 
-
   # ── Backend Application ──────────────────────────────────────
-  # Runs RobotNode + PickAndPlacePipeline + FastAPI flow execution API.
-  # API available at http://localhost:8000
   backend:
     build: ./backend
     container_name: forgis-backend
-    network_mode: host
+    networks: [ ros ]
     ipc: host
     ports:
-      - "8000:8000"  # FastAPI (Note: ignored when network_mode: host on Linux)
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/app/fastdds.xml
       - FLOWS_DIR=/app/flows
       - YOLO_MODEL=${YOLO_MODEL:-/app/weights/roboflow_logistics.pt}
-      - CAMERA_INPUT_MODE=${CAMERA_INPUT_MODE:-usb}
+      - CAMERA_INPUT_MODE=${CAMERA_INPUT_MODE:-bridge}
       - CAMERA_IMAGE_TOPIC=${CAMERA_IMAGE_TOPIC:-/image_raw}
-      - CAMERA_BRIDGE_HOST=${CAMERA_BRIDGE_HOST:-127.0.0.1}
+      - CAMERA_BRIDGE_HOST=${CAMERA_BRIDGE_HOST:-host.docker.internal}
       - CAMERA_BRIDGE_PORT=${CAMERA_BRIDGE_PORT:-8765}
       - ROBOT_TCP_OFFSET=${ROBOT_TCP_OFFSET:-0,0,0.055,0,0,0}
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
@@ -61,23 +73,31 @@ services:
       - GEMINI_LIVE_MODEL=${GEMINI_LIVE_MODEL:-gemini-2.5-flash}
     env_file: .env
     volumes:
-      - ./backend/src:/app/src  # Development mount for code changes
-      - ./backend/src/data/flow:/app/flows  # Persist flow definitions
-      - ./backend/src/data/orchestrator/runs:/app/runs  # Persist orchestrator runs
-      - ./backend/weights:/app/weights  # YOLO model weights
+      - ./assets/fastdds_backend.xml:/app/fastdds.xml:ro
+      - ./backend/src:/app/src
+      - ./backend/src/data/flow:/app/flows
+      - ./backend/src/data/orchestrator/runs:/app/runs
+      - ./backend/weights:/app/weights
     deploy:
       resources:
         limits:
           memory: 8G
     restart: unless-stopped
 
+  # ── Camera Server ───────────────────────────────────────────
+  # On Windows, run camera_server.py natively on the host:
+  #   cd assets/camera_server && pip install opencv-python websockets numpy
+  #   python camera_server.py --mode uvc
+
   # ── Frontend ─────────────────────────────────────────────────
   frontend:
     build: ./frontend
     container_name: forgis-frontend
-    network_mode: host
+    networks: [ ros ]
     ports:
       - "80:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - backend
     restart: unless-stopped

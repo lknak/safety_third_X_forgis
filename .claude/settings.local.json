@@ -7,7 +7,11 @@
       "Bash(docker restart forgis-backend)",
       "Bash(xargs grep -l \"Pose\\\\|Transform\")",
       "Bash(grep -r \"import\" backend/src/nodes/*.py)",
-      "Bash(xargs grep -l \"publish\\\\|subscriber\\\\|create_subscription\")"
+      "Bash(xargs grep -l \"publish\\\\|subscriber\\\\|create_subscription\")",
+      "Bash(powershell -Command \"Get-NetTCPConnection -LocalPort 8765 -ErrorAction SilentlyContinue | Format-Table\")",
+      "Bash(tasklist)",
+      "Bash(powershell -Command \"Get-Process python* -ErrorAction SilentlyContinue | Select-Object Id,ProcessName,CommandLine | Format-Table -AutoSize\")",
+      "Bash(python -c \":*)"
     ]
   }
 }

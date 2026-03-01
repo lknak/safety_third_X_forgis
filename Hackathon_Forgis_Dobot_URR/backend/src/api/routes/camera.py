@@ -51,6 +51,7 @@ class CameraStateResponse(BaseModel):
     streaming: bool
     frame_size: Optional[dict] = None
     last_detection: Optional[dict] = None
+    input_mode: Optional[str] = None
 
 
 # --- Endpoints ---

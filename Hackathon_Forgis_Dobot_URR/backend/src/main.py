@@ -4,6 +4,7 @@ import threading
 
 import rclpy
 import uvicorn
+from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 
 from api.app import create_app
@@ -16,7 +17,7 @@ from nodes.ur_node import RobotNode
 from nodes.dobot_nova5_node import DobotNova5Node
 from nodes.camera_node import CameraNode
 from nodes.camera_bridge_node import CameraBridgeNode
-from nodes.covvi_hand_node import CovviHandNode
+from nodes.pneumatic_gripper_node import PneumaticGripperNode
 # Import skills to register them
 import skills.robot  # noqa: F401
 import skills.io  # noqa: F401
@@ -60,9 +61,9 @@ def main():
 
     # Fixed ROS 2 nodes
     camera = CameraNode()
-    camera_input_mode = os.environ.get("CAMERA_INPUT_MODE", "usb").strip().lower()
+    camera_input_mode = os.environ.get("CAMERA_INPUT_MODE", "bridge").strip().lower()
     camera_bridge = CameraBridgeNode() if camera_input_mode == "bridge" else None
-    hand = CovviHandNode()
+    hand = PneumaticGripperNode(robot)
 
     # WebSocket manager for real-time events
     ws_manager = WebSocketManager()
@@ -121,11 +122,22 @@ def main():
     ros_executor.add_node(robot)
     ros_executor.add_node(camera)
     if camera_bridge is not None:
+        bridge_host = os.environ.get("CAMERA_BRIDGE_HOST", "host.docker.internal")
+        bridge_port = os.environ.get("CAMERA_BRIDGE_PORT", "8765")
         ros_executor.add_node(camera_bridge)
-        logger.info("Camera bridge enabled (CAMERA_INPUT_MODE=bridge)")
+        logger.info(
+            "Camera bridge enabled — connecting to ws://%s:%s",
+            bridge_host, bridge_port,
+        )
     else:
-        logger.info("Camera bridge disabled (CAMERA_INPUT_MODE=%s)", camera_input_mode or "usb")
-    ros_executor.add_node(hand)
+        logger.info("Camera bridge disabled (CAMERA_INPUT_MODE=%s)", camera_input_mode)
+    if isinstance(hand, Node):
+        ros_executor.add_node(hand)
+    else:
+        logger.info(
+            "Skipping ROS executor registration for hand node: %s is not an rclpy Node",
+            type(hand).__name__,
+        )
     # Run ROS 2 executor in background thread
     ros_thread = threading.Thread(target=run_ros_executor, args=(ros_executor,), daemon=True)
     ros_thread.start()
@@ -147,7 +159,8 @@ def main():
         camera.destroy_node()
         if camera_bridge is not None:
             camera_bridge.destroy_node()
-        hand.destroy_node()
+        if isinstance(hand, Node):
+            hand.destroy_node()
         rclpy.shutdown()
 
 

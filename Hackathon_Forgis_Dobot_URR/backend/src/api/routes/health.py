@@ -9,6 +9,10 @@ class DeviceStatus(BaseModel):
     status: str
     error: Optional[str] = None
     suggestion: Optional[str] = None
+    device_type: Optional[str] = None
+    display_name: Optional[str] = None
+    detected: Optional[bool] = None
+    source: Optional[str] = None
 
 class OverallHealthResponse(BaseModel):
     overall_status: str
