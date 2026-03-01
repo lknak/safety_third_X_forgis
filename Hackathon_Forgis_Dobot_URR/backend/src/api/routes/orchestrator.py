@@ -64,17 +64,6 @@ class PreviewFlow(BaseModel):
     edges: list[PreviewFlowEdge]
 
 
-class PlannerPreviewStep(BaseModel):
-    skill: str
-    description: str = ""
-
-
-class PlannerPreview(BaseModel):
-    is_agentic: bool = False
-    reasoning: str = ""
-    steps: list[PlannerPreviewStep] = Field(default_factory=list)
-
-
 class OrchestratorTaskResponse(BaseModel):
     mode: str = "orchestrator"
     accepted: bool
@@ -82,7 +71,6 @@ class OrchestratorTaskResponse(BaseModel):
     task_id: Optional[str] = None
     flow_id: Optional[str] = None
     queue_depth: Optional[int] = None
-    plan: Optional[PlannerPreview] = None
     preview_flow: Optional[PreviewFlow] = None
 
 
@@ -161,39 +149,13 @@ def _plan_preview_to_flow(flow_id: str, instruction: str, plan: PlanResult) -> P
     )
 
 
-def _plan_result_preview(plan: PlanResult) -> PlannerPreview:
-    steps: list[PlannerPreviewStep] = []
-    for node in plan.nodes:
-        payload = node.payload if isinstance(node.payload, dict) else {}
-        params = payload.get("params", {})
-        if not isinstance(params, dict):
-            params = {}
-        skill = str(payload.get("skill_name") or node.name)
-        description = str(payload.get("description") or "")
-        if node.type.value == "SUMMARY_NODE":
-            continue
-        steps.append(PlannerPreviewStep(skill=skill, description=description))
-
-    reasoning = "; ".join(plan.assumptions) if plan.assumptions else ""
-    return PlannerPreview(
-        is_agentic=plan.is_agentic,
-        reasoning=reasoning,
-        steps=steps,
-    )
-
-
 @router.post("/tasks", response_model=OrchestratorTaskResponse)
 async def create_task(request: OrchestratorTaskRequest):
     """Queue a new orchestrator task from natural language input."""
     engine = _get_engine()
     instruction = request.instruction.strip()
 
-    if hasattr(engine, "should_orchestrate_task"):
-        actionable = await engine.should_orchestrate_task(instruction)  # type: ignore[attr-defined]
-    else:
-        actionable = engine.is_actionable_task(instruction)
-
-    if not actionable:
+    if not engine.is_actionable_task(instruction):
         queue_depth = (await engine.get_state_snapshot()).queue_depth
         reply = await engine.build_cell_manager_reply(instruction)
         return OrchestratorTaskResponse(
@@ -211,7 +173,6 @@ async def create_task(request: OrchestratorTaskRequest):
     queue_depth = (await engine.get_state_snapshot()).queue_depth
     preview_flow_id = task.flow_id if task else f"preview_{instruction[:24].strip().replace(' ', '_')}"
     flow_preview = _plan_preview_to_flow(preview_flow_id, instruction, preview) if preview else None
-    plan_preview = _plan_result_preview(preview) if preview else None
 
     if not accepted:
         return OrchestratorTaskResponse(
@@ -219,7 +180,6 @@ async def create_task(request: OrchestratorTaskRequest):
             accepted=False,
             message=message,
             queue_depth=queue_depth,
-            plan=plan_preview,
             preview_flow=flow_preview,
         )
 
@@ -236,7 +196,6 @@ async def create_task(request: OrchestratorTaskRequest):
         task_id=task.task_id,
         flow_id=task.flow_id,
         queue_depth=queue_depth,
-        plan=plan_preview,
         preview_flow=flow_preview,
     )
 
@@ -292,3 +251,45 @@ async def update_goal(flow_id: str, request: GoalChangeRequest):
     if not success:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
     return DecisionResponse(success=success, message=message)
+
+
+@router.post("/demo", response_model=OrchestratorTaskResponse)
+async def start_demo():
+    """Launch a skill demo that walks through every orchestrator capability."""
+    from orchestrator.planner import DEMO_INSTRUCTION
+
+    engine = _get_engine()
+
+    try:
+        accepted, message, task, preview = await engine.enqueue_task(DEMO_INSTRUCTION)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    queue_depth = (await engine.get_state_snapshot()).queue_depth
+    preview_flow_id = task.flow_id if task else "demo_preview"
+    flow_preview = _plan_preview_to_flow(preview_flow_id, "Skill Demo", preview) if preview else None
+
+    if not accepted:
+        return OrchestratorTaskResponse(
+            mode="orchestrator",
+            accepted=False,
+            message=message,
+            queue_depth=queue_depth,
+            preview_flow=flow_preview,
+        )
+
+    if task is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Demo accepted but no task metadata returned",
+        )
+
+    return OrchestratorTaskResponse(
+        mode="orchestrator",
+        accepted=True,
+        message="Skill demo queued",
+        task_id=task.task_id,
+        flow_id=task.flow_id,
+        queue_depth=queue_depth,
+        preview_flow=flow_preview,
+    )

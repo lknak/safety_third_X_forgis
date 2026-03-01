@@ -35,29 +35,35 @@ export interface Flow {
 
 // ── Chat types ──────────────────────────────────────────────
 
+export type ChatMessageType =
+  | "text"
+  | "thinking"
+  | "tool_call"
+  | "tool_result"
+  | "skill_invocation"
+  | "plan_step"
+  | "system";
+
+export interface ToolCallMeta {
+  skillName: string;
+  status: "pending" | "running" | "success" | "failure" | "timeout";
+  thought?: string;
+  catchyPhrase?: string;
+  contextNote?: string;
+  goalIndex?: number;
+  confidence?: number;
+  artifacts?: Record<string, unknown>;
+  durationMs?: number;
+  nodeName?: string;
+}
+
 export interface ChatMessage {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   content: string;
   timestamp: number;
-  kind?: "text" | "node" | "reasoning" | "plan" | "status" | "success" | "error";
-  node?: {
-    flowId: string;
-    name: string;
-    type: OrchestratorNodeType | string;
-    status: OrchestratorNodeStatus | "RUNNING";
-    durationMs?: number;
-  };
-  artifacts?: Record<string, unknown>;
-  media?: Array<{
-    type: "image" | "video";
-    dataUrl: string;
-    label?: string;
-  }>;
-  planSteps?: Array<{
-    skill: string;
-    description: string;
-  }>;
+  type?: ChatMessageType;
+  meta?: ToolCallMeta;
 }
 
 // ── Device types ────────────────────────────────────────────
@@ -148,8 +154,8 @@ export type ServerMessage =
   | { type: "orchestrator_clarification_requested"; flow_id: string; node_name: string; reason: string; timeout_seconds: number; choices: Array<"retry" | "replan" | "modify_goal" | "safe_stop">; timestamp: number }
   | { type: "orchestrator_clarification_resolved"; flow_id: string; action: "retry" | "replan" | "modify_goal" | "safe_stop"; note?: string; timestamp: number }
   | { type: "orchestrator_clarification_timeout"; flow_id: string; node_name: string; timestamp: number }
-  | { type: "orchestrator_agentic_micro_plan"; flow_id: string; iteration: number; reasoning: string; scene_summary?: string; progress?: Record<string, unknown>; timestamp: number }
   | { type: "orchestrator_live_chunk"; flow_id: string; node_name: string; text: string; audio_chunk: string; focus_regions?: Array<Record<string, unknown>>; timestamp: number }
+  | { type: "orchestrator_planning_thought"; flow_id: string; thought: string; chosen_skill: string; goal_index?: number; confidence?: number; context_note?: string; catchy_phrase?: string; is_complete?: boolean; node_name?: string; phase?: string; timestamp: number }
   | { type: "pong" };
 
 // ── Bounding box types ─────────────────────────────────────
@@ -173,30 +179,12 @@ export interface BoundingBoxOverlay {
 export type OrchestratorNodeType =
   | "INPUT_NODE"
   | "ORCHESTRATOR_PLANNER_NODE"
-  | "SUMMARY_NODE"
-  | "CAPTURE_IMAGE"
-  | "ANALYZE_SCENE"
-  | "ESTIMATE_GRASP_POSE"
-  | "DEPTH_ESTIMATION"
-  | "LLM_REASON"
-  | "LIVE_NARRATE"
-  | "MOVE_TO_POSE"
-  | "MOVE_JOINTS"
-  | "JOG_JOINTS"
-  | "GET_ROBOT_STATE"
-  | "SUCTION_ON"
-  | "SUCTION_OFF"
-  | "SET_DIGITAL_OUTPUT"
-  | "WAIT_DIGITAL_INPUT"
-  | "WAIT"
-  | "VERIFY_OUTCOME"
-  // Legacy aliases retained for backward compatibility with historical runs
   | "ER_1_5_ANALYSIS_NODE"
   | "DEPTH_ESTIMATION_NODE"
   | "ROBOT_EXECUTION_NODE"
   | "GEMINI_LIVE_COMMENTARY_NODE"
   | "VERIFICATION_NODE"
-  | "JOG_JOINTS_NODE";
+  | "SUMMARY_NODE";
 
 export type OrchestratorNodeStatus = "SUCCESS" | "FAILURE" | "TIMEOUT";
 
@@ -207,22 +195,6 @@ export interface OrchestratorTile {
   startTime?: number;
   endTime?: number;
   artifacts?: Record<string, unknown>;
-}
-
-export interface PlannedOrchestratorNode {
-  name: string;
-  type: OrchestratorNodeType;
-  order: number;
-}
-
-export type OrchestratorTilePhase = "past" | "active" | "future";
-
-export interface OrchestratorTimelineTile extends OrchestratorTile {
-  order: number;
-  phase: OrchestratorTilePhase;
-  isActive: boolean;
-  durationMs: number | null;
-  hasArtifacts: boolean;
 }
 /**
  * Props for the generic ContentPanel component

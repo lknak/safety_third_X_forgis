@@ -49,17 +49,6 @@ export interface PreviewFlow {
   edges: PreviewFlowEdge[];
 }
 
-export interface PlanPreviewStep {
-  skill: string;
-  description: string;
-}
-
-export interface PlanPreview {
-  is_agentic: boolean;
-  reasoning?: string;
-  steps: PlanPreviewStep[];
-}
-
 export interface CreateTaskResponse {
   mode?: "cell_manager" | "orchestrator";
   accepted: boolean;
@@ -67,7 +56,6 @@ export interface CreateTaskResponse {
   task_id?: string;
   flow_id?: string;
   queue_depth?: number;
-  plan?: PlanPreview;
   preview_flow?: PreviewFlow;
 }
 
@@ -151,4 +139,8 @@ export async function submitOrchestratorDecision(flowId: string, payload: Decisi
 
 export async function requestOrchestratorGoalChange(flowId: string, goal: string): Promise<void> {
   await postJson(`/orchestrator/runs/${flowId}/goal`, { goal });
+}
+
+export async function startSkillDemo(): Promise<CreateTaskResponse> {
+  return postJson<CreateTaskResponse>("/orchestrator/demo", {});
 }

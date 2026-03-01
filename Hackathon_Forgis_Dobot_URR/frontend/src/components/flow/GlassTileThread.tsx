@@ -1,230 +1,153 @@
-import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import type { OrchestratorTimelineTile } from "@/types";
+import { Eye, Cpu, Move, Mic, CheckCircle2, Zap, Bot, Wrench, Loader2 } from "lucide-react";
+import type { OrchestratorTile, OrchestratorNodeType } from "@/types";
 
 interface GlassTileThreadProps {
-  orderedTiles: OrchestratorTimelineTile[];
-  heroTile: OrchestratorTimelineTile | null;
+  tiles: OrchestratorTile[];
   activeNodeName: string | null;
   liveText: string;
-  onInspectTile: (nodeName: string) => void;
 }
 
-const AUTO_FOLLOW_PAUSE_MS = 2500;
+// ── Node type → friendly label + icon ────────────────────────
 
-function statusLabel(tile: OrchestratorTimelineTile): string {
-  if (tile.status === "RUNNING") return "Running";
-  if (tile.status === "PENDING") return "Pending";
-  if (tile.status === "SUCCESS") return "Success";
-  if (tile.status === "FAILURE") return "Failure";
-  return "Timeout";
+const NODE_META: Record<OrchestratorNodeType, { label: string; Icon: typeof Eye }> = {
+  INPUT_NODE: { label: "Cell Snapshot", Icon: Eye },
+  ORCHESTRATOR_PLANNER_NODE: { label: "Task Planner", Icon: Cpu },
+  ER_1_5_ANALYSIS_NODE: { label: "Scene Analysis", Icon: Eye },
+  DEPTH_ESTIMATION_NODE: { label: "Depth Calc", Icon: Zap },
+  ROBOT_EXECUTION_NODE: { label: "Robot Motion", Icon: Move },
+  GEMINI_LIVE_COMMENTARY_NODE: { label: "Live Narration", Icon: Mic },
+  VERIFICATION_NODE: { label: "Verify", Icon: CheckCircle2 },
+  SUMMARY_NODE: { label: "Summary", Icon: Bot },
+};
+
+function edgeClass(tile: OrchestratorTile, isActive: boolean): string {
+  if (tile.status === "SUCCESS") return "border-[var(--status-healthy)] shadow-[0_0_12px_rgba(34,197,94,0.15)]";
+  if (tile.status === "FAILURE" || tile.status === "TIMEOUT") return "border-[var(--status-critical)] shadow-[0_0_12px_rgba(239,68,68,0.15)]";
+  if (isActive) return "border-[var(--status-warning)] animate-pulse shadow-[0_0_16px_rgba(245,158,11,0.2)]";
+  if (tile.status === "PENDING") return "border-border/30 opacity-60";
+  return "border-border/50";
 }
 
-function statusClass(tile: OrchestratorTimelineTile): string {
-  if (tile.status === "SUCCESS") return "glass-status-success";
-  if (tile.status === "FAILURE" || tile.status === "TIMEOUT") return "glass-status-failure";
-  if (tile.status === "RUNNING") return "glass-status-running";
-  return "border-border/40 text-muted-foreground";
+function statusDot(tile: OrchestratorTile, isActive: boolean): string {
+  if (tile.status === "SUCCESS") return "bg-[var(--status-healthy)]";
+  if (tile.status === "FAILURE" || tile.status === "TIMEOUT") return "bg-[var(--status-critical)]";
+  if (isActive || tile.status === "RUNNING") return "bg-[var(--status-warning)] animate-pulse";
+  return "bg-muted-foreground/30";
 }
 
-function artifactSummary(artifacts?: Record<string, unknown>): string[] {
-  if (!artifacts || Object.keys(artifacts).length === 0) {
-    return [];
-  }
-
-  return Object.entries(artifacts)
-    .slice(0, 4)
-    .map(([key, value]) => {
-      if (value == null) return `${key}: none`;
-      if (typeof value === "string") {
-        const compact = value.replace(/\s+/g, " ").trim();
-        return `${key}: ${compact.length > 22 ? `${compact.slice(0, 22)}...` : compact}`;
-      }
-      if (typeof value === "number" || typeof value === "boolean") {
-        return `${key}: ${String(value)}`;
-      }
-      if (Array.isArray(value)) {
-        return `${key}: ${value.length} items`;
-      }
-      return `${key}: object`;
-    });
+function durationLabel(tile: OrchestratorTile): string | null {
+  if (!tile.startTime || !tile.endTime) return null;
+  const ms = Math.round((tile.endTime - tile.startTime) * 1000);
+  return ms > 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
 }
 
-function formatTime(epoch?: number): string {
-  if (!epoch) return "n/a";
-  return new Date(epoch * 1000).toLocaleTimeString();
-}
+const EMPTY_DOODLE = `
+     ╭──────────────────╮
+     │  ┌─┐   Waiting   │
+     │  │ │   for nodes  │
+     │  └─┘   ...        │
+     ╰──────────────────╯
+`.trimStart();
 
-function formatDuration(durationMs: number | null): string {
-  if (durationMs == null) return "n/a";
-  return `${(durationMs / 1000).toFixed(1)} s`;
-}
-
-export function GlassTileThread({
-  orderedTiles,
-  heroTile,
-  activeNodeName,
-  liveText,
-  onInspectTile,
-}: GlassTileThreadProps) {
-  const stripRef = useRef<HTMLDivElement | null>(null);
-  const frameRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const [autoFollowPausedUntil, setAutoFollowPausedUntil] = useState(0);
-
-  const focusNodeName = activeNodeName ?? orderedTiles.find((tile) => tile.isActive)?.name ?? null;
-  const heroArtifactSummary = useMemo(
-    () => artifactSummary(heroTile?.artifacts),
-    [heroTile?.artifacts],
-  );
-
-  const pauseAutoFollow = () => {
-    setAutoFollowPausedUntil(Date.now() + AUTO_FOLLOW_PAUSE_MS);
-  };
-
-  useEffect(() => {
-    if (!focusNodeName) return;
-    if (Date.now() < autoFollowPausedUntil) return;
-    const target = frameRefs.current[focusNodeName];
-    if (!target) return;
-    target.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-  }, [autoFollowPausedUntil, focusNodeName, orderedTiles]);
-
-  if (orderedTiles.length === 0) {
+export function GlassTileThread({ tiles, activeNodeName, liveText }: GlassTileThreadProps) {
+  if (tiles.length === 0) {
     return (
-      <div className="h-full flex items-center justify-center text-muted-foreground forgis-text-label font-forgis-body">
-        Waiting for orchestrator telemetry...
+      <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-3">
+        <pre className="text-[10px] leading-tight font-mono opacity-50">
+          {EMPTY_DOODLE}
+        </pre>
+        <p className="forgis-text-label font-forgis-body italic">
+          Send a task to see the execution thread
+        </p>
       </div>
     );
   }
 
-  const showLiveSection = !!heroTile && (heroTile.type === "GEMINI_LIVE_COMMENTARY_NODE" || !!liveText);
-
   return (
-    <div className="h-full w-full p-4 md:p-5">
-      <div className="h-full flex flex-col gap-4 md:gap-5">
-        <section
-          key={heroTile?.name ?? "hero-empty"}
-          className="glass-surface glass-hero animate-hero-switch min-h-[44vh] md:min-h-[48vh] p-4 md:p-6 flex flex-col"
-        >
-          {heroTile ? (
-            <>
-              <header className="flex items-start justify-between gap-4">
-                <div className="space-y-2">
-                  <span className="inline-flex items-center rounded-full border border-white/35 bg-white/20 px-2.5 py-1 text-[10px] uppercase tracking-widest text-foreground/85 font-forgis-digit">
-                    {heroTile.type}
-                  </span>
-                  <h2 className="forgis-text-title md:text-[20px] font-forgis-digit leading-tight break-words">
-                    {heroTile.name}
-                  </h2>
-                </div>
-                <span className={cn("rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-widest font-forgis-digit", statusClass(heroTile))}>
-                  {statusLabel(heroTile)}
+    <div className="h-full w-full overflow-x-auto overflow-y-hidden p-4">
+      <div className="flex h-full gap-3 min-w-max items-stretch">
+        {tiles.map((tile, idx) => {
+          const isActive = activeNodeName === tile.name;
+          const isLivePrimary = isActive && tile.type === "GEMINI_LIVE_COMMENTARY_NODE";
+          const meta = NODE_META[tile.type] || { label: tile.type, Icon: Wrench };
+          const duration = durationLabel(tile);
+
+          return (
+            <section
+              key={tile.name}
+              className={cn(
+                "rounded-2xl border bg-card/70 backdrop-blur-md transition-all duration-300 flex flex-col relative",
+                edgeClass(tile, isActive),
+                isLivePrimary ? "w-[460px] p-4" : "w-[220px] p-3",
+              )}
+            >
+              {/* Step number badge */}
+              <div className="absolute -top-2 -left-2 w-5 h-5 rounded-full bg-card border border-border flex items-center justify-center">
+                <span className="text-[8px] font-forgis-digit text-muted-foreground">
+                  {idx + 1}
                 </span>
+              </div>
+
+              <header className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <meta.Icon size={14} className={cn(
+                    tile.status === "SUCCESS" ? "text-[var(--status-healthy)]" :
+                    tile.status === "FAILURE" || tile.status === "TIMEOUT" ? "text-[var(--status-critical)]" :
+                    isActive ? "text-[var(--status-warning)]" :
+                    "text-muted-foreground"
+                  )} />
+                  <div>
+                    <h3 className="text-[11px] font-forgis-digit uppercase tracking-wider leading-tight">
+                      {meta.label}
+                    </h3>
+                    <p className="text-[9px] text-muted-foreground font-mono mt-0.5 break-all">
+                      {tile.name}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {isActive && <Loader2 size={10} className="animate-spin text-[var(--status-warning)]" />}
+                  <span className={cn("w-2 h-2 rounded-full", statusDot(tile, isActive))} />
+                </div>
               </header>
 
-              <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-2.5 text-[11px]">
-                <div className="rounded-xl bg-white/25 border border-white/30 px-3 py-2">
-                  <div className="text-muted-foreground uppercase tracking-wider text-[9px] font-forgis-digit">Start</div>
-                  <div className="font-forgis-body mt-1">{formatTime(heroTile.startTime)}</div>
-                </div>
-                <div className="rounded-xl bg-white/25 border border-white/30 px-3 py-2">
-                  <div className="text-muted-foreground uppercase tracking-wider text-[9px] font-forgis-digit">End</div>
-                  <div className="font-forgis-body mt-1">{formatTime(heroTile.endTime)}</div>
-                </div>
-                <div className="rounded-xl bg-white/25 border border-white/30 px-3 py-2">
-                  <div className="text-muted-foreground uppercase tracking-wider text-[9px] font-forgis-digit">Duration</div>
-                  <div className="font-forgis-body mt-1">{formatDuration(heroTile.durationMs)}</div>
-                </div>
-                <div className="rounded-xl bg-white/25 border border-white/30 px-3 py-2">
-                  <div className="text-muted-foreground uppercase tracking-wider text-[9px] font-forgis-digit">Artifacts</div>
-                  <div className="font-forgis-body mt-1">{heroTile.hasArtifacts ? "Available" : "None"}</div>
-                </div>
+              {/* Timing */}
+              <div className="mt-2 flex items-center gap-2 text-[9px] font-mono text-muted-foreground">
+                {tile.startTime && (
+                  <span>{new Date(tile.startTime * 1000).toLocaleTimeString()}</span>
+                )}
+                {duration && (
+                  <span className="px-1 py-0.5 rounded bg-muted/40 text-foreground/70">
+                    {duration}
+                  </span>
+                )}
               </div>
 
-              {heroArtifactSummary.length > 0 && (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {heroArtifactSummary.map((item) => (
-                    <span
-                      key={item}
-                      className="inline-flex items-center rounded-full border border-white/35 bg-white/20 px-2.5 py-1 text-[10px] font-forgis-digit text-foreground/80"
-                    >
-                      {item}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              {showLiveSection && (
-                <div className="mt-4 rounded-2xl border border-white/30 bg-black/55 text-white p-4">
-                  <p className="text-[10px] uppercase tracking-widest text-[var(--status-warning)] font-forgis-digit mb-2">
-                    Gemini Live Commentary
-                  </p>
-                  <p className="forgis-text-label font-forgis-body leading-relaxed">
-                    {liveText || "Listening and narrating robot motion..."}
+              {/* Live commentary panel */}
+              {isLivePrimary && (
+                <div className="mt-3 flex-1 rounded-xl border border-border/40 bg-black/80 text-white p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                    <p className="text-[9px] uppercase tracking-widest text-[var(--status-warning)] font-forgis-digit">
+                      Live
+                    </p>
+                  </div>
+                  <p className="text-xs font-forgis-body leading-relaxed">
+                    {liveText || "Narrating robot motion..."}
                   </p>
                 </div>
               )}
-            </>
-          ) : (
-            <div className="h-full flex items-center justify-center text-muted-foreground forgis-text-label font-forgis-body">
-              Waiting for orchestrator node focus...
-            </div>
-          )}
-        </section>
 
-        <section className="glass-surface rounded-2xl p-3 md:p-4 flex-1 min-h-[190px] relative overflow-hidden">
-          <div className="flex items-center justify-between px-1">
-            <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-forgis-digit">Past</span>
-            <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-forgis-digit">Upcoming</span>
-          </div>
-
-          <div className="relative mt-2 h-[calc(100%-24px)]">
-            <div className="glass-divider absolute top-0 bottom-0 left-1/2 -translate-x-1/2 z-10" />
-
-            <div
-              ref={stripRef}
-              className="h-full overflow-x-auto overflow-y-hidden scrollbar-hidden"
-              onMouseDown={pauseAutoFollow}
-              onWheel={pauseAutoFollow}
-              onTouchStart={pauseAutoFollow}
-            >
-              <div className="inline-flex h-full items-center gap-3 px-[48vw] min-w-max">
-                {orderedTiles.map((tile) => (
-                  <button
-                    key={tile.name}
-                    ref={(el) => {
-                      frameRefs.current[tile.name] = el;
-                    }}
-                    type="button"
-                    onClick={() => onInspectTile(tile.name)}
-                    className={cn(
-                      "glass-frame text-left shrink-0 w-[190px] md:w-[210px] px-3 py-3 transition-all duration-200",
-                      tile.phase === "past" && "opacity-85 saturate-75",
-                      tile.phase === "future" && "opacity-70",
-                      tile.isActive && "glass-frame-active animate-glass-frame-pulse",
-                      statusClass(tile),
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-[9px] uppercase tracking-widest text-muted-foreground font-forgis-digit truncate">
-                        {tile.type}
-                      </p>
-                      <span className="text-[9px] uppercase tracking-widest font-forgis-digit text-foreground/80">
-                        {statusLabel(tile)}
-                      </span>
-                    </div>
-                    <h3 className="mt-1.5 forgis-text-label font-forgis-digit leading-tight line-clamp-2 min-h-[32px]">
-                      {tile.name}
-                    </h3>
-                    <div className="mt-2 text-[10px] text-muted-foreground font-forgis-body">
-                      {tile.durationMs != null ? `${(tile.durationMs / 1000).toFixed(1)} s` : "Awaiting runtime"}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
+              {/* Artifacts preview */}
+              {!isLivePrimary && tile.artifacts && Object.keys(tile.artifacts).length > 0 && (
+                <div className="mt-2 flex-1 rounded-lg bg-muted/30 p-2 text-[9px] font-mono text-foreground/70 overflow-hidden">
+                  {JSON.stringify(tile.artifacts, null, 1).slice(0, 200)}
+                </div>
+              )}
+            </section>
+          );
+        })}
       </div>
     </div>
   );

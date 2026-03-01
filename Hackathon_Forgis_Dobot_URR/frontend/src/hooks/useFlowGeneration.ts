@@ -1,12 +1,42 @@
 import { useCallback, useState } from "react";
+import { createOrchestratorTask, startSkillDemo } from "@/api/orchestratorApi";
+import { layoutFlow } from "@/services/flowLayoutService";
+import type { ChatMessage, Flow } from "@/types";
 
-import { createOrchestratorTask } from "@/api/orchestratorApi";
-import type { ChatMessage } from "@/types";
+// ── Catchy response phrases ──────────────────────────────────
+
+const QUEUED_PHRASES = [
+  "Roger that. Task is queued and I'm on it.",
+  "Got it — planning the approach now.",
+  "Locked in. Watch the thread for real-time progress.",
+  "Mission accepted. Executing node by node.",
+];
+
+const ERROR_PHRASES = [
+  "Hmm, that didn't land.",
+  "Hit a snag on that one.",
+  "Something's off — let me explain.",
+];
+
+function pickRandom(arr: string[]): string {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
 
 export function useFlowGeneration() {
+  const [flow, setFlow] = useState<Flow | null>(null);
   const [activeFlowId, setActiveFlowId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
+
+  const addMessage = useCallback((msg: ChatMessage) => {
+    setMessages((prev) => [...prev, msg]);
+  }, []);
+
+  const updateMessage = useCallback((id: string, update: Partial<ChatMessage>) => {
+    setMessages((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, ...update } : m))
+    );
+  }, []);
 
   const sendMessage = useCallback(async (content: string) => {
     const userMsg: ChatMessage = {
@@ -14,93 +44,133 @@ export function useFlowGeneration() {
       role: "user",
       content,
       timestamp: Date.now(),
-      kind: "text",
+      type: "text",
     };
-    setMessages((prev) => [...prev, userMsg]);
+    addMessage(userMsg);
     setLoading(true);
 
     try {
       const result = await createOrchestratorTask(content);
+      setActiveFlowId(result.flow_id ?? null);
+      if (result.preview_flow) {
+        setFlow(layoutFlow(result.preview_flow as unknown as Flow));
+      }
 
-      if (result.mode === "cell_manager") {
-        setActiveFlowId(null);
-
-        const assistantMsg: ChatMessage = {
+      if (result.flow_id) {
+        // Task accepted — add a system message and the assistant response
+        addMessage({
+          id: crypto.randomUUID(),
+          role: "system",
+          content: `Flow ${result.flow_id}`,
+          timestamp: Date.now(),
+          type: "system",
+        });
+        addMessage({
           id: crypto.randomUUID(),
           role: "assistant",
-          kind: "text",
+          content: pickRandom(QUEUED_PHRASES),
+          timestamp: Date.now(),
+          type: "text",
+        });
+      } else {
+        addMessage({
+          id: crypto.randomUUID(),
+          role: "assistant",
           content: result.message,
           timestamp: Date.now(),
-        };
-        setMessages((prev) => [...prev, assistantMsg]);
-      } else {
-        setActiveFlowId(result.flow_id ?? null);
-
-        if (result.plan?.reasoning) {
-          const reasoningMsg: ChatMessage = {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            kind: "reasoning",
-            content: result.plan.reasoning,
-            timestamp: Date.now(),
-          };
-          setMessages((prev) => [...prev, reasoningMsg]);
-        }
-
-        if (result.plan && result.plan.steps.length > 0) {
-          const planMsg: ChatMessage = {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            kind: "plan",
-            content: result.plan.is_agentic
-              ? "Agentic mode � will observe and plan each step dynamically."
-              : `Static plan with ${result.plan.steps.length} steps. Executing now...`,
-            timestamp: Date.now(),
-            planSteps: result.plan.is_agentic ? undefined : result.plan.steps,
-          };
-          setMessages((prev) => [...prev, planMsg]);
-        } else if (result.plan?.is_agentic) {
-          const agenticMsg: ChatMessage = {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            kind: "status",
-            content: "Agentic mode � will observe, reason, and act iteratively until the task is complete.",
-            timestamp: Date.now(),
-          };
-          setMessages((prev) => [...prev, agenticMsg]);
-        } else {
-          const statusMsg: ChatMessage = {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            kind: "status",
-            content: result.flow_id
-              ? `Task queued (${result.flow_id}). Executing...`
-              : result.message,
-            timestamp: Date.now(),
-          };
-          setMessages((prev) => [...prev, statusMsg]);
-        }
+          type: "text",
+        });
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "An unexpected error occurred.";
-      const assistantMsg: ChatMessage = {
+      const errorMessage = err instanceof Error ? err.message : "An unexpected alignment error occurred.";
+      addMessage({
         id: crypto.randomUUID(),
         role: "assistant",
-        kind: "error",
-        content: `Error: ${errorMessage}`,
+        content: `${pickRandom(ERROR_PHRASES)}\n\n${errorMessage}`,
         timestamp: Date.now(),
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
-      setActiveFlowId(null);
+        type: "text",
+      });
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [addMessage]);
 
-  return {
-    activeFlowId,
-    messages,
-    loading,
-    sendMessage,
-  };
+  const updateStepParams = useCallback(
+    (nodeId: string, stepId: string, params: Record<string, unknown>) => {
+      setFlow((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          nodes: prev.nodes.map((node) =>
+            node.id === nodeId
+              ? {
+                ...node,
+                steps: node.steps?.map((s) =>
+                  s.id === stepId ? { ...s, params } : s
+                ),
+              }
+              : node
+          ),
+        };
+      });
+    },
+    []
+  );
+
+  const launchDemo = useCallback(async () => {
+    addMessage({
+      id: crypto.randomUUID(),
+      role: "system",
+      content: "Skill Demo",
+      timestamp: Date.now(),
+      type: "system",
+    });
+    addMessage({
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content: "Launching the skill demo — I'll walk through every capability one by one.",
+      timestamp: Date.now(),
+      type: "text",
+    });
+    setLoading(true);
+
+    try {
+      const result = await startSkillDemo();
+      setActiveFlowId(result.flow_id ?? null);
+      if (result.preview_flow) {
+        setFlow(layoutFlow(result.preview_flow as unknown as Flow));
+      }
+
+      if (result.flow_id) {
+        addMessage({
+          id: crypto.randomUUID(),
+          role: "system",
+          content: `Demo flow ${result.flow_id}`,
+          timestamp: Date.now(),
+          type: "system",
+        });
+      } else {
+        addMessage({
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: result.message,
+          timestamp: Date.now(),
+          type: "text",
+        });
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Demo failed to launch.";
+      addMessage({
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: `${pickRandom(ERROR_PHRASES)}\n\n${errorMessage}`,
+        timestamp: Date.now(),
+        type: "text",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [addMessage]);
+
+  return { flow, activeFlowId, messages, loading, sendMessage, updateStepParams, addMessage, updateMessage, launchDemo };
 }
