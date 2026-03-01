@@ -251,3 +251,45 @@ async def update_goal(flow_id: str, request: GoalChangeRequest):
     if not success:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
     return DecisionResponse(success=success, message=message)
+
+
+@router.post("/demo", response_model=OrchestratorTaskResponse)
+async def start_demo():
+    """Launch a skill demo that walks through every orchestrator capability."""
+    from orchestrator.planner import DEMO_INSTRUCTION
+
+    engine = _get_engine()
+
+    try:
+        accepted, message, task, preview = await engine.enqueue_task(DEMO_INSTRUCTION)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    queue_depth = (await engine.get_state_snapshot()).queue_depth
+    preview_flow_id = task.flow_id if task else "demo_preview"
+    flow_preview = _plan_preview_to_flow(preview_flow_id, "Skill Demo", preview) if preview else None
+
+    if not accepted:
+        return OrchestratorTaskResponse(
+            mode="orchestrator",
+            accepted=False,
+            message=message,
+            queue_depth=queue_depth,
+            preview_flow=flow_preview,
+        )
+
+    if task is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Demo accepted but no task metadata returned",
+        )
+
+    return OrchestratorTaskResponse(
+        mode="orchestrator",
+        accepted=True,
+        message="Skill demo queued",
+        task_id=task.task_id,
+        flow_id=task.flow_id,
+        queue_depth=queue_depth,
+        preview_flow=flow_preview,
+    )

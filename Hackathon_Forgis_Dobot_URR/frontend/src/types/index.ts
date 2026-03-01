@@ -35,11 +35,35 @@ export interface Flow {
 
 // ── Chat types ──────────────────────────────────────────────
 
+export type ChatMessageType =
+  | "text"
+  | "thinking"
+  | "tool_call"
+  | "tool_result"
+  | "skill_invocation"
+  | "plan_step"
+  | "system";
+
+export interface ToolCallMeta {
+  skillName: string;
+  status: "pending" | "running" | "success" | "failure" | "timeout";
+  thought?: string;
+  catchyPhrase?: string;
+  contextNote?: string;
+  goalIndex?: number;
+  confidence?: number;
+  artifacts?: Record<string, unknown>;
+  durationMs?: number;
+  nodeName?: string;
+}
+
 export interface ChatMessage {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   content: string;
   timestamp: number;
+  type?: ChatMessageType;
+  meta?: ToolCallMeta;
 }
 
 // ── Device types ────────────────────────────────────────────
@@ -131,6 +155,7 @@ export type ServerMessage =
   | { type: "orchestrator_clarification_resolved"; flow_id: string; action: "retry" | "replan" | "modify_goal" | "safe_stop"; note?: string; timestamp: number }
   | { type: "orchestrator_clarification_timeout"; flow_id: string; node_name: string; timestamp: number }
   | { type: "orchestrator_live_chunk"; flow_id: string; node_name: string; text: string; audio_chunk: string; focus_regions?: Array<Record<string, unknown>>; timestamp: number }
+  | { type: "orchestrator_planning_thought"; flow_id: string; thought: string; chosen_skill: string; goal_index?: number; confidence?: number; context_note?: string; catchy_phrase?: string; is_complete?: boolean; node_name?: string; phase?: string; timestamp: number }
   | { type: "pong" };
 
 // ── Bounding box types ─────────────────────────────────────

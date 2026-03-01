@@ -140,3 +140,7 @@ export async function submitOrchestratorDecision(flowId: string, payload: Decisi
 export async function requestOrchestratorGoalChange(flowId: string, goal: string): Promise<void> {
   await postJson(`/orchestrator/runs/${flowId}/goal`, { goal });
 }
+
+export async function startSkillDemo(): Promise<CreateTaskResponse> {
+  return postJson<CreateTaskResponse>("/orchestrator/demo", {});
+}

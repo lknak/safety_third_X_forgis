@@ -40,7 +40,7 @@ export function RobotControlPage() {
   const { lineId, cellId } = useParams<{ lineId: string; cellId: string }>();
   const line = LINES.find(l => l.id === lineId);
   const cell = line?.cells.find(c => c.id === cellId);
-  const { flow, activeFlowId, messages, loading, sendMessage, updateStepParams } = useFlowGeneration();
+  const { flow, activeFlowId, messages, loading, sendMessage, updateStepParams, addMessage, updateMessage, launchDemo } = useFlowGeneration();
   const { cameraFrame, lastLabel, callbacks: cameraCallbacks } = useCamera();
   const { flowStatus, nodeStates, finishing, startFlow, pauseFlow, resumeFlow, finishFlow, resetFlow } = useFlowExecution(flow, cameraCallbacks);
   const {
@@ -51,7 +51,10 @@ export function RobotControlPage() {
     armAudio,
     clarification,
     submitDecision,
-  } = useOrchestratorRun(activeFlowId);
+  } = useOrchestratorRun(activeFlowId, {
+    onChatMessage: addMessage,
+    onUpdateChatMessage: updateMessage,
+  });
 
   const [selectedStep, setSelectedStep] = useState<SelectedStep | null>(null);
   const [nodeCreatorOpen, setNodeCreatorOpen] = useState(false);
@@ -339,7 +342,7 @@ export function RobotControlPage() {
                 isResizingRight && "bg-primary w-1.5"
               )}
             />
-            <CoderSidebar messages={messages} loading={loading} onSend={sendMessage} />
+            <CoderSidebar messages={messages} loading={loading} onSend={sendMessage} onDemo={launchDemo} />
           </aside>
         )}
       </div>

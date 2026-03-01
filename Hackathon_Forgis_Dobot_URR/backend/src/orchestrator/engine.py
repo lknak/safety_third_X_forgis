@@ -1,4 +1,9 @@
-"""Always-on orchestrator engine for queueing, planning, and executing FlowRuns."""
+"""Always-on orchestrator engine with iterative skill-by-skill execution.
+
+The engine now asks the planner for ONE step at a time, executes it, emits
+the planner's reasoning to the frontend, and repeats — mirroring how Claude
+Code selects one tool at a time.
+"""
 
 from __future__ import annotations
 
@@ -15,18 +20,22 @@ from .node_runner import NodeRunner
 from .planner import OrchestratorPlanner
 from .queue import OrchestratorTaskQueue
 from .schemas import (
+    CATCHY_PHRASES,
+    SKILL_BY_NODE_TYPE,
     ClarificationAction,
     ClarificationDecision,
     ClarificationRequest,
     EngineStateSnapshot,
     FlowRunNodeRecord,
     FlowRunRecord,
+    IterativePlanStep,
     NodePlan,
     NodeResultStatus,
     NodeType,
     OrchestratorState,
     OrchestratorTask,
     PlanResult,
+    StepReasoning,
     TransitionRecord,
 )
 from .store import FlowRunStore
@@ -35,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 
 class OrchestratorEngine:
-    """Deterministic always-on orchestrator supervisor."""
+    """Deterministic always-on orchestrator supervisor with iterative planning."""
 
     def __init__(
         self,
@@ -80,17 +89,15 @@ class OrchestratorEngine:
         p = Path(path)
         if not p.exists():
             raise FileNotFoundError(f"Safe Z config not found: {path}")
-
         with open(p, "r", encoding="utf-8") as f:
             data = json.load(f)
-
         if "zones" not in data or "global_limits" not in data:
             raise ValueError("Safe Z config must include 'zones' and 'global_limits'")
-
         return data
 
+    # ── Lifecycle ─────────────────────────────────────────────
+
     async def start(self) -> None:
-        """Start supervisor and background queue worker."""
         await self._transition(OrchestratorState.CELL_CHECK, "boot complete")
         ok, reason = await self._run_cell_check()
         if not ok:
@@ -104,7 +111,6 @@ class OrchestratorEngine:
             self._worker_task = asyncio.create_task(self._worker_loop())
 
     async def stop(self) -> None:
-        """Stop background loop."""
         self._shutdown_event.set()
         if self._worker_task:
             self._worker_task.cancel()
@@ -114,8 +120,9 @@ class OrchestratorEngine:
                 pass
             self._worker_task = None
 
+    # ── Public API ────────────────────────────────────────────
+
     async def enqueue_task(self, instruction: str) -> tuple[bool, str, Optional[OrchestratorTask], Optional[PlanResult]]:
-        """Queue a task and return acceptance metadata + planning preview."""
         instruction = instruction.strip()
         if not instruction:
             return False, "Instruction must not be empty", None, None
@@ -156,18 +163,12 @@ class OrchestratorEngine:
                 "queue_position": position,
             },
         )
-
         return True, "Task queued", task, preview
 
     def is_actionable_task(self, instruction: str) -> bool:
-        """Classify whether a message is an actionable robot task."""
         return OrchestratorPlanner.looks_like_robot_task(instruction)
 
     async def build_cell_manager_reply(self, query: str) -> str:
-        """
-        Answer general cell questions conversationally using current runtime status.
-        Falls back to deterministic text when Gemini is unavailable.
-        """
         context = await self._cell_manager_context()
         prompt = (
             "You are the Forgis cell manager. "
@@ -178,7 +179,6 @@ class OrchestratorEngine:
             f"Cell state JSON:\n{json.dumps(context, ensure_ascii=True)}\n\n"
             f"User message: {query!r}"
         )
-
         try:
             return await self._gemini.generate_text(prompt, model=self._gemini.orchestrator_model)
         except Exception:
@@ -203,7 +203,6 @@ class OrchestratorEngine:
             return " ".join(parts)
 
     async def get_state_snapshot(self) -> EngineStateSnapshot:
-        """Get current orchestrator runtime state."""
         return EngineStateSnapshot(
             state=self._state,
             queue_depth=await self._queue.depth(),
@@ -213,54 +212,41 @@ class OrchestratorEngine:
         )
 
     async def list_queue(self) -> list[OrchestratorTask]:
-        """List queued tasks."""
         return await self._queue.list_pending()
 
     def list_runs(self, limit: int = 20, offset: int = 0) -> list[FlowRunRecord]:
-        """List persisted runs."""
         return self._store.list(limit=limit, offset=offset)
 
     def get_run(self, flow_id: str) -> Optional[FlowRunRecord]:
-        """Get one run by id."""
         return self._store.get(flow_id)
 
     async def submit_decision(self, flow_id: str, decision: ClarificationDecision) -> tuple[bool, str]:
-        """Submit operator clarification decision for active run."""
         future = self._pending_decisions.get(flow_id)
         if future is None:
             return False, f"No pending clarification for flow {flow_id}"
-
         if future.done():
             return False, f"Clarification already resolved for flow {flow_id}"
-
         future.set_result(decision)
-        self._emit(
-            "orchestrator_clarification_resolved",
-            {
-                "flow_id": flow_id,
-                "action": decision.action.value,
-                "note": decision.note,
-            },
-        )
+        self._emit("orchestrator_clarification_resolved", {
+            "flow_id": flow_id,
+            "action": decision.action.value,
+            "note": decision.note,
+        })
         return True, "Decision accepted"
 
     async def request_goal_change(self, flow_id: str, goal: str) -> tuple[bool, str]:
-        """Request a mid-run goal change; processed at next node boundary."""
         if self._active_flow_id != flow_id:
             return False, f"Flow {flow_id} is not currently executing"
-
         self._goal_change_requests[flow_id] = goal
-        self._emit(
-            "orchestrator_goal_change_requested",
-            {
-                "flow_id": flow_id,
-                "goal": goal,
-            },
-        )
+        self._emit("orchestrator_goal_change_requested", {
+            "flow_id": flow_id,
+            "goal": goal,
+        })
         return True, "Goal change request registered"
 
+    # ── Worker loop ───────────────────────────────────────────
+
     async def _worker_loop(self) -> None:
-        """Background execution loop."""
         while not self._shutdown_event.is_set():
             if self._state == OrchestratorState.ERROR:
                 await self._transition(OrchestratorState.RECOVERY, "attempting recovery")
@@ -296,7 +282,6 @@ class OrchestratorEngine:
             )
 
     async def _run_cell_check(self) -> tuple[bool, str]:
-        """Validate hard requirements before accepting executions."""
         try:
             ok, reason = await self._gemini.health_check()
             if not ok:
@@ -305,141 +290,214 @@ class OrchestratorEngine:
             return False, f"Gemini config error: {exc}"
         except Exception as exc:
             return False, f"Gemini health check error: {exc}"
-
         return True, "ok"
 
+    # ── Core execution — iterative skill-by-skill ─────────────
+
     async def _execute_task(self, task: OrchestratorTask) -> FlowRunRecord:
-        """Execute a queued task into a persisted FlowRun record."""
+        """Execute a queued task using the iterative planner.
+
+        Instead of building all nodes upfront, we ask the planner for
+        one step at a time, execute it, evaluate, and repeat.
+        """
         run = FlowRunRecord(
             flow_id=task.flow_id,
             instruction=task.instruction,
             started_at=time.time(),
         )
         self._active_run = run
+
         context: dict[str, Any] = {
             "flow_id": task.flow_id,
             "instruction": task.instruction,
             "executed_nodes": [],
             "deviations": [],
             "observations": [],
+            "current_goal_index": 0,
         }
 
+        # ── Phase 1: Static prefix (input + planner) ─────────
         static_prefix = [
             NodePlan(name="input", type=NodeType.INPUT_NODE, timeout_ms=30000, payload={}),
-            NodePlan(
-                name="planner",
-                type=NodeType.ORCHESTRATOR_PLANNER_NODE,
-                timeout_ms=30000,
-                payload={},
-            ),
+            NodePlan(name="planner", type=NodeType.ORCHESTRATOR_PLANNER_NODE, timeout_ms=30000, payload={}),
         ]
 
         for node in static_prefix:
+            # Emit reasoning before each static node
+            reasoning = self._planner.get_reasoning_for_node(node.type)
+            skill = SKILL_BY_NODE_TYPE.get(node.type)
+            skill_name = skill.name if skill else node.type.value
+
+            self._emit("orchestrator_planning_thought", {
+                "flow_id": task.flow_id,
+                "thought": reasoning,
+                "chosen_skill": skill_name,
+                "phase": skill.phase if skill else "init",
+                "catchy_phrase": CATCHY_PHRASES.get(skill_name, ["Working..."])[0],
+                "node_name": node.name,
+            })
+
             record = await self._execute_with_timeout(node, context)
             run.nodes.append(record)
+
             if record.status != NodeResultStatus.SUCCESS:
                 await self._finalize_failed_run(run, record)
                 return run
 
-        plan_result: PlanResult = context.get("plan_result")
-        planned_nodes = list(plan_result.nodes)
+        # Detect special modes
+        is_demo = self._planner.is_demo_command(task.instruction)
+        is_jog = self._planner._is_jog_command(task.instruction)
+        context["is_demo"] = is_demo
+        context["is_jog"] = is_jog
 
-        idx = 0
-        while idx < len(planned_nodes):
-            # Mid-run goal change hook.
+        # Store jog payload if applicable
+        if is_jog and not is_demo:
+            plan_result: PlanResult = context.get("plan_result")
+            if plan_result and plan_result.nodes:
+                jog_node = next((n for n in plan_result.nodes if n.type == NodeType.JOG_JOINTS_NODE), None)
+                if jog_node:
+                    context["jog_payload"] = jog_node.payload
+
+        # ── Phase 2: Iterative skill-by-skill execution ───────
+        max_iterations = 50  # safety guard
+        iteration = 0
+
+        while iteration < max_iterations:
+            iteration += 1
+
+            # Check for mid-run goal change
             if task.flow_id in self._goal_change_requests:
                 goal = self._goal_change_requests.pop(task.flow_id)
-                proceed, new_nodes = await self._handle_goal_change(run, task, goal, context)
+                proceed, new_plan = await self._handle_goal_change(run, task, goal, context)
                 if not proceed:
                     run.final_status = "ABORTED"
                     run.completed_at = time.time()
                     return run
-                planned_nodes = new_nodes
-                idx = 0
+                # Reset goal index for replanned subgoals
+                context["current_goal_index"] = 0
                 continue
 
-            node = planned_nodes[idx]
+            # Ask planner for the next step (demo mode uses its own step planner)
+            if context.get("is_demo"):
+                step: IterativePlanStep = self._planner.plan_next_demo_step(context)
+            else:
+                step = await self._planner.plan_next_step(
+                    instruction=task.instruction,
+                    context=context,
+                )
 
-            # ROBOT + LIVE are executed concurrently but recorded separately.
-            if (
-                node.type == NodeType.ROBOT_EXECUTION_NODE
-                and idx + 1 < len(planned_nodes)
-                and planned_nodes[idx + 1].type == NodeType.GEMINI_LIVE_COMMENTARY_NODE
-            ):
-                live_node = planned_nodes[idx + 1]
-                try:
-                    robot_record, live_record = await asyncio.wait_for(
-                        self._runner.execute_robot_and_live_pair(node, live_node, context),
-                        timeout=max(node.timeout_ms, live_node.timeout_ms) / 1000.0,
-                    )
-                except asyncio.TimeoutError:
-                    robot_record = FlowRunNodeRecord(
-                        name=node.name,
-                        type=node.type,
-                        status=NodeResultStatus.TIMEOUT,
-                        start_time=time.time(),
-                        end_time=time.time(),
-                        timeout_ms=node.timeout_ms,
-                        artifacts={"error": f"Node timed out after {node.timeout_ms}ms"},
-                    )
-                    live_record = FlowRunNodeRecord(
-                        name=live_node.name,
-                        type=live_node.type,
-                        status=NodeResultStatus.TIMEOUT,
-                        start_time=time.time(),
-                        end_time=time.time(),
-                        timeout_ms=live_node.timeout_ms,
-                        artifacts={"error": f"Node timed out after {live_node.timeout_ms}ms"},
-                    )
+            # Emit the planner's reasoning to the frontend
+            self._emit("orchestrator_planning_thought", {
+                "flow_id": task.flow_id,
+                "thought": step.reasoning.thought,
+                "chosen_skill": step.reasoning.chosen_skill,
+                "goal_index": step.reasoning.goal_index,
+                "confidence": step.reasoning.confidence,
+                "context_note": step.reasoning.context_note,
+                "catchy_phrase": step.catchy_phrase,
+                "is_complete": step.is_complete,
+                "node_name": step.node.name if step.node else None,
+            })
 
-                run.nodes.extend([robot_record, live_record])
+            # Task complete?
+            if step.is_complete:
+                run.final_status = "SUCCESS"
+                run.completed_at = time.time()
+                self._emit("orchestrator_run_completed", {
+                    "flow_id": run.flow_id,
+                    "final_status": run.final_status,
+                    "catchy_phrase": step.catchy_phrase,
+                })
+                return run
 
-                if robot_record.status != NodeResultStatus.SUCCESS or live_record.status != NodeResultStatus.SUCCESS:
-                    proceed, replanned = await self._handle_failure(
-                        run=run,
-                        failed_node=robot_record if robot_record.status != NodeResultStatus.SUCCESS else live_record,
-                        task=task,
-                        context=context,
-                    )
-                    if not proceed:
-                        run.completed_at = time.time()
-                        return run
-                    planned_nodes = replanned
-                    idx = 0
+            # Advance subgoal if the planner signals it
+            if step.reasoning.chosen_skill == "advance_subgoal":
+                context["current_goal_index"] = step.reasoning.goal_index
+                continue
+
+            # No node to execute (shouldn't happen, but guard)
+            if step.node is None:
+                continue
+
+            node = step.node
+
+            # ── Concurrent robot + live pair ──────────────────
+            if node.type == NodeType.ROBOT_EXECUTION_NODE:
+                # Peek ahead: plan the live node too
+                live_step = await self._planner.plan_next_step(
+                    instruction=task.instruction,
+                    context={
+                        **context,
+                        # Pretend robot is done so planner picks narrate_live
+                        "executed_nodes": context["executed_nodes"] + [
+                            FlowRunNodeRecord(
+                                name=node.name, type=node.type,
+                                status=NodeResultStatus.SUCCESS,
+                                start_time=time.time(), end_time=time.time(),
+                                timeout_ms=node.timeout_ms,
+                            )
+                        ],
+                    },
+                )
+
+                if live_step.node and live_step.node.type == NodeType.GEMINI_LIVE_COMMENTARY_NODE:
+                    # Emit live node reasoning
+                    self._emit("orchestrator_planning_thought", {
+                        "flow_id": task.flow_id,
+                        "thought": live_step.reasoning.thought,
+                        "chosen_skill": live_step.reasoning.chosen_skill,
+                        "catchy_phrase": live_step.catchy_phrase,
+                        "node_name": live_step.node.name,
+                    })
+
+                    try:
+                        robot_record, live_record = await asyncio.wait_for(
+                            self._runner.execute_robot_and_live_pair(node, live_step.node, context),
+                            timeout=max(node.timeout_ms, live_step.node.timeout_ms) / 1000.0,
+                        )
+                    except asyncio.TimeoutError:
+                        robot_record = FlowRunNodeRecord(
+                            name=node.name, type=node.type,
+                            status=NodeResultStatus.TIMEOUT,
+                            start_time=time.time(), end_time=time.time(),
+                            timeout_ms=node.timeout_ms,
+                            artifacts={"error": f"Node timed out after {node.timeout_ms}ms"},
+                        )
+                        live_record = FlowRunNodeRecord(
+                            name=live_step.node.name, type=live_step.node.type,
+                            status=NodeResultStatus.TIMEOUT,
+                            start_time=time.time(), end_time=time.time(),
+                            timeout_ms=live_step.node.timeout_ms,
+                            artifacts={"error": f"Node timed out after {live_step.node.timeout_ms}ms"},
+                        )
+
+                    run.nodes.extend([robot_record, live_record])
+
+                    if robot_record.status != NodeResultStatus.SUCCESS or live_record.status != NodeResultStatus.SUCCESS:
+                        failed = robot_record if robot_record.status != NodeResultStatus.SUCCESS else live_record
+                        proceed = await self._handle_failure_iterative(run, failed, task, context)
+                        if not proceed:
+                            run.completed_at = time.time()
+                            return run
                     continue
 
-                idx += 2
-                continue
-
+            # ── Standard single-node execution ────────────────
             record = await self._execute_with_timeout(node, context)
             run.nodes.append(record)
 
             if record.status != NodeResultStatus.SUCCESS:
-                proceed, replanned = await self._handle_failure(
-                    run=run,
-                    failed_node=record,
-                    task=task,
-                    context=context,
-                )
+                proceed = await self._handle_failure_iterative(run, record, task, context)
                 if not proceed:
                     run.completed_at = time.time()
                     return run
-                planned_nodes = replanned
-                idx = 0
-                continue
 
-            idx += 1
-
-        run.final_status = "SUCCESS"
+        # Exceeded max iterations
+        run.final_status = "FAILURE"
+        run.error_message = f"Exceeded maximum iterations ({max_iterations})"
         run.completed_at = time.time()
-        self._emit(
-            "orchestrator_run_completed",
-            {
-                "flow_id": run.flow_id,
-                "final_status": run.final_status,
-            },
-        )
         return run
+
+    # ── Execution helpers ─────────────────────────────────────
 
     async def _execute_with_timeout(
         self,
@@ -462,27 +520,26 @@ class OrchestratorEngine:
                 timeout_ms=node.timeout_ms,
                 artifacts={"error": f"Node timed out after {node.timeout_ms}ms"},
             )
-            self._emit(
-                "orchestrator_node_finished",
-                {
-                    "flow_id": context["flow_id"],
-                    "node_name": node.name,
-                    "node_type": node.type.value,
-                    "status": NodeResultStatus.TIMEOUT.value,
-                    "duration_ms": node.timeout_ms,
-                    "artifacts": record.artifacts,
-                },
-            )
+            self._emit("orchestrator_node_finished", {
+                "flow_id": context["flow_id"],
+                "node_name": node.name,
+                "node_type": node.type.value,
+                "status": NodeResultStatus.TIMEOUT.value,
+                "duration_ms": node.timeout_ms,
+                "artifacts": record.artifacts,
+            })
             return record
 
-    async def _handle_failure(
+    # ── Failure handling (iterative mode) ─────────────────────
+
+    async def _handle_failure_iterative(
         self,
         run: FlowRunRecord,
         failed_node: FlowRunNodeRecord,
         task: OrchestratorTask,
         context: dict[str, Any],
-    ) -> tuple[bool, list[NodePlan]]:
-        """Ask operator first, then execute selected recovery action."""
+    ) -> bool:
+        """Handle a failed node.  Returns True to continue, False to stop."""
         reason = failed_node.artifacts.get("error") or f"Node {failed_node.name} failed"
 
         decision = await self._request_clarification(
@@ -494,14 +551,11 @@ class OrchestratorEngine:
         if decision is None:
             run.final_status = "TIMEOUT"
             run.error_message = f"Clarification timeout after failure in {failed_node.name}"
-            self._emit(
-                "orchestrator_clarification_timeout",
-                {
-                    "flow_id": run.flow_id,
-                    "node_name": failed_node.name,
-                },
-            )
-            return False, []
+            self._emit("orchestrator_clarification_timeout", {
+                "flow_id": run.flow_id,
+                "node_name": failed_node.name,
+            })
+            return False
 
         action = decision.action
         note = decision.note or ""
@@ -509,7 +563,7 @@ class OrchestratorEngine:
         if action == ClarificationAction.SAFE_STOP:
             run.final_status = "ABORTED"
             run.error_message = reason
-            return False, []
+            return False
 
         if action == ClarificationAction.RETRY:
             retry_plan = NodePlan(
@@ -518,16 +572,25 @@ class OrchestratorEngine:
                 timeout_ms=failed_node.timeout_ms,
                 payload=self._find_payload_for_node(context, failed_node.name),
             )
+
+            self._emit("orchestrator_planning_thought", {
+                "flow_id": run.flow_id,
+                "thought": f"Retrying {failed_node.name} after operator approval...",
+                "chosen_skill": "retry",
+                "catchy_phrase": "Second time's the charm...",
+                "node_name": failed_node.name,
+            })
+
             retry_record = await self._execute_with_timeout(retry_plan, context)
             run.nodes.append(retry_record)
             if retry_record.status == NodeResultStatus.SUCCESS:
-                return True, list(context.get("plan_nodes", []))
+                return True
             run.final_status = "FAILURE"
             run.error_message = (
                 retry_record.artifacts.get("error")
                 or f"Retry failed for node {failed_node.name}"
             )
-            return False, []
+            return False
 
         # REPLAN or MODIFY_GOAL
         note = note or ("Operator requested replanning" if action == ClarificationAction.REPLAN else "")
@@ -540,16 +603,28 @@ class OrchestratorEngine:
         context["plan_result"] = plan
         context["plan_nodes"] = plan.nodes
         context["subgoals"] = plan.subgoals
-        self._emit(
-            "orchestrator_replanned",
-            {
-                "flow_id": run.flow_id,
-                "reason": reason,
-                "action": action.value,
-                "subgoals": plan.subgoals,
-            },
-        )
-        return True, list(plan.nodes)
+        context["current_goal_index"] = 0
+        # Clear executed nodes for the replanned subgoals (keep input + planner)
+        context["executed_nodes"] = [
+            n for n in context.get("executed_nodes", [])
+            if hasattr(n, "type") and n.type in {NodeType.INPUT_NODE, NodeType.ORCHESTRATOR_PLANNER_NODE}
+        ]
+
+        self._emit("orchestrator_replanned", {
+            "flow_id": run.flow_id,
+            "reason": reason,
+            "action": action.value,
+            "subgoals": plan.subgoals,
+        })
+
+        self._emit("orchestrator_planning_thought", {
+            "flow_id": run.flow_id,
+            "thought": f"Replanned with {len(plan.subgoals)} new subgoals. Starting fresh.",
+            "chosen_skill": "decompose_task",
+            "catchy_phrase": "New plan, who dis?",
+        })
+
+        return True
 
     async def _handle_goal_change(
         self,
@@ -581,15 +656,14 @@ class OrchestratorEngine:
         context["plan_nodes"] = plan.nodes
         context["subgoals"] = plan.subgoals
 
-        self._emit(
-            "orchestrator_goal_change_applied",
-            {
-                "flow_id": run.flow_id,
-                "goal": goal,
-            },
-        )
+        self._emit("orchestrator_goal_change_applied", {
+            "flow_id": run.flow_id,
+            "goal": goal,
+        })
 
         return True, list(plan.nodes)
+
+    # ── Clarification ─────────────────────────────────────────
 
     async def _request_clarification(
         self,
@@ -605,16 +679,13 @@ class OrchestratorEngine:
         future: asyncio.Future[ClarificationDecision] = asyncio.get_running_loop().create_future()
         self._pending_decisions[flow_id] = future
 
-        self._emit(
-            "orchestrator_clarification_requested",
-            {
-                "flow_id": flow_id,
-                "node_name": node_name,
-                "reason": reason,
-                "timeout_seconds": req.timeout_seconds,
-                "choices": [choice.value for choice in req.choices],
-            },
-        )
+        self._emit("orchestrator_clarification_requested", {
+            "flow_id": flow_id,
+            "node_name": node_name,
+            "reason": reason,
+            "timeout_seconds": req.timeout_seconds,
+            "choices": [choice.value for choice in req.choices],
+        })
 
         try:
             decision = await asyncio.wait_for(future, timeout=req.timeout_seconds)
@@ -634,14 +705,13 @@ class OrchestratorEngine:
         run.final_status = "FAILURE"
         run.error_message = record.artifacts.get("error") or f"Node {record.name} failed"
         run.completed_at = time.time()
-        self._emit(
-            "orchestrator_run_completed",
-            {
-                "flow_id": run.flow_id,
-                "final_status": run.final_status,
-                "error": run.error_message,
-            },
-        )
+        self._emit("orchestrator_run_completed", {
+            "flow_id": run.flow_id,
+            "final_status": run.final_status,
+            "error": run.error_message,
+        })
+
+    # ── State helpers ─────────────────────────────────────────
 
     def _cell_state_snapshot(self) -> dict[str, Any]:
         return {
@@ -680,22 +750,15 @@ class OrchestratorEngine:
     async def _transition(self, to_state: OrchestratorState, reason: str) -> None:
         from_state = self._state
         self._state = to_state
-        self._emit(
-            "orchestrator_state_transition",
-            {
-                "from_state": from_state.value,
-                "to_state": to_state.value,
-                "reason": reason,
-            },
-        )
+        self._emit("orchestrator_state_transition", {
+            "from_state": from_state.value,
+            "to_state": to_state.value,
+            "reason": reason,
+        })
 
         if self._active_run is not None:
             self._active_run.state_transitions.append(
-                TransitionRecord(
-                    from_state=from_state,
-                    to_state=to_state,
-                    reason=reason,
-                )
+                TransitionRecord(from_state=from_state, to_state=to_state, reason=reason)
             )
 
     def _emit(self, event_type: str, data: dict[str, Any]) -> None:

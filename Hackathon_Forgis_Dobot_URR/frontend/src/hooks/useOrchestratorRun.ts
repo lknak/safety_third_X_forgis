@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFlowSocket } from "@/api/flowSocket";
 import { submitOrchestratorDecision } from "@/api/orchestratorApi";
-import type { OrchestratorTile, OrchestratorNodeType, OrchestratorNodeStatus, ServerMessage } from "@/types";
+import type { ChatMessage, OrchestratorTile, OrchestratorNodeType, OrchestratorNodeStatus, ServerMessage, ToolCallMeta } from "@/types";
 
 const ORDERED_NODE_TYPES: OrchestratorNodeType[] = [
   "INPUT_NODE",
@@ -20,7 +20,17 @@ function statusFromNode(status: OrchestratorNodeStatus): OrchestratorTile["statu
   return "TIMEOUT";
 }
 
-export function useOrchestratorRun(activeFlowId: string | null) {
+interface UseOrchestratorRunOptions {
+  /** Callback to inject chat messages from planning events. */
+  onChatMessage?: (msg: ChatMessage) => void;
+  /** Callback to update an existing chat message by id. */
+  onUpdateChatMessage?: (id: string, update: Partial<ChatMessage>) => void;
+}
+
+export function useOrchestratorRun(
+  activeFlowId: string | null,
+  options?: UseOrchestratorRunOptions,
+) {
   const [tiles, setTiles] = useState<OrchestratorTile[]>([]);
   const [activeNodeName, setActiveNodeName] = useState<string | null>(null);
   const [liveText, setLiveText] = useState<string>("");
@@ -37,6 +47,9 @@ export function useOrchestratorRun(activeFlowId: string | null) {
   const playingRef = useRef(false);
   const socketRef = useRef<{ close: () => void } | null>(null);
 
+  // Track which planning thoughts have been emitted as chat messages
+  const emittedNodes = useRef<Set<string>>(new Set());
+
   const updateTile = useCallback((name: string, update: Partial<OrchestratorTile>) => {
     setTiles((prev) => {
       const next = [...prev];
@@ -51,7 +64,6 @@ export function useOrchestratorRun(activeFlowId: string | null) {
           ...update,
         });
       }
-
       next.sort((a, b) => ORDERED_NODE_TYPES.indexOf(a.type) - ORDERED_NODE_TYPES.indexOf(b.type));
       return next;
     });
@@ -60,11 +72,9 @@ export function useOrchestratorRun(activeFlowId: string | null) {
   const processAudioQueue = useCallback(async () => {
     if (playingRef.current) return;
     playingRef.current = true;
-
     while (audioQueue.current.length > 0) {
       const chunk = audioQueue.current.shift();
       if (!chunk) continue;
-
       try {
         const audio = new Audio(`data:audio/wav;base64,${chunk}`);
         await audio.play();
@@ -73,7 +83,6 @@ export function useOrchestratorRun(activeFlowId: string | null) {
         break;
       }
     }
-
     playingRef.current = false;
   }, []);
 
@@ -83,6 +92,56 @@ export function useOrchestratorRun(activeFlowId: string | null) {
   }, [processAudioQueue]);
 
   const handleMessage = useCallback((msg: ServerMessage) => {
+    // Planning thoughts use a separate guard
+    if (msg.type === "orchestrator_planning_thought") {
+      if (!("flow_id" in msg) || msg.flow_id !== activeFlowId) return;
+
+      const nodeName = msg.node_name ?? msg.chosen_skill;
+      const msgKey = `${msg.flow_id}_${nodeName}_${msg.chosen_skill}`;
+
+      // Don't duplicate
+      if (emittedNodes.current.has(msgKey)) return;
+      emittedNodes.current.add(msgKey);
+
+      // Skip advance_subgoal — it's just flow control
+      if (msg.chosen_skill === "advance_subgoal") return;
+
+      // "done" → text message
+      if (msg.is_complete) {
+        options?.onChatMessage?.({
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: msg.catchy_phrase || "All done!",
+          timestamp: Date.now(),
+          type: "text",
+        });
+        return;
+      }
+
+      // Create a tool_call chat message
+      const meta: ToolCallMeta = {
+        skillName: msg.chosen_skill,
+        status: "running",
+        thought: msg.thought,
+        catchyPhrase: msg.catchy_phrase,
+        contextNote: msg.context_note,
+        goalIndex: msg.goal_index,
+        confidence: msg.confidence,
+        nodeName: nodeName,
+      };
+
+      options?.onChatMessage?.({
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: msg.thought,
+        timestamp: Date.now(),
+        type: "tool_call",
+        meta,
+      });
+      return;
+    }
+
+    // All other messages need flow_id match
     if (!("flow_id" in msg) || !activeFlowId || msg.flow_id !== activeFlowId) {
       return;
     }
@@ -97,7 +156,7 @@ export function useOrchestratorRun(activeFlowId: string | null) {
         });
         break;
 
-      case "orchestrator_node_finished":
+      case "orchestrator_node_finished": {
         updateTile(msg.node_name, {
           type: msg.node_type,
           status: statusFromNode(msg.status),
@@ -107,7 +166,29 @@ export function useOrchestratorRun(activeFlowId: string | null) {
         if (activeNodeName === msg.node_name) {
           setActiveNodeName(null);
         }
+
+        // Emit a tool_result chat message with final status
+        const chatStatus: ToolCallMeta["status"] =
+          msg.status === "SUCCESS" ? "success" :
+          msg.status === "FAILURE" ? "failure" :
+          "timeout";
+
+        options?.onChatMessage?.({
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: "",
+          timestamp: Date.now(),
+          type: "tool_result",
+          meta: {
+            skillName: msg.node_name,
+            status: chatStatus,
+            durationMs: msg.duration_ms,
+            artifacts: msg.artifacts,
+            nodeName: msg.node_name,
+          },
+        });
         break;
+      }
 
       case "orchestrator_tile_focus":
         setActiveNodeName(msg.active_node);
@@ -138,10 +219,20 @@ export function useOrchestratorRun(activeFlowId: string | null) {
         setActiveNodeName(null);
         break;
 
+      case "orchestrator_replanned":
+        options?.onChatMessage?.({
+          id: crypto.randomUUID(),
+          role: "system",
+          content: "Plan updated",
+          timestamp: Date.now(),
+          type: "system",
+        });
+        break;
+
       default:
         break;
     }
-  }, [activeFlowId, activeNodeName, processAudioQueue, updateTile]);
+  }, [activeFlowId, activeNodeName, processAudioQueue, updateTile, options]);
 
   useEffect(() => {
     setTiles([]);
@@ -149,13 +240,12 @@ export function useOrchestratorRun(activeFlowId: string | null) {
     setLiveText("");
     setClarification(null);
     audioQueue.current = [];
+    emittedNodes.current = new Set();
 
     socketRef.current?.close();
     socketRef.current = null;
 
-    if (!activeFlowId) {
-      return;
-    }
+    if (!activeFlowId) return;
 
     let closed = false;
 
@@ -173,7 +263,7 @@ export function useOrchestratorRun(activeFlowId: string | null) {
       }
       socketRef.current = socket;
     }).catch(() => {
-      // Handled by existing telemetry UI and fallback states.
+      // Handled by existing telemetry UI
     });
 
     return () => {

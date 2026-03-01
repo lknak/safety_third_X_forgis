@@ -150,3 +150,153 @@ class GoalChangeRequest(BaseModel):
     """Request to modify goal during execution."""
 
     goal: str = Field(..., min_length=1)
+
+
+# ── Iterative skill-aware planner schemas ─────────────────────
+
+
+class SkillInfo(BaseModel):
+    """Description of an available orchestrator skill (node type)."""
+
+    name: str
+    node_type: NodeType
+    description: str
+    phase: str = ""  # e.g. "perception", "planning", "execution", "verification"
+
+
+class StepReasoning(BaseModel):
+    """Planner reasoning for a single step decision."""
+
+    thought: str  # Why this skill was chosen (Claude-style thinking)
+    chosen_skill: str  # Skill name from catalog
+    goal_index: int = 0  # Which subgoal this serves
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    context_note: str = ""  # Optional context for the UI
+
+
+class IterativePlanStep(BaseModel):
+    """Result of a single iterative planning step."""
+
+    reasoning: StepReasoning
+    node: Optional[NodePlan] = None
+    is_complete: bool = False
+    catchy_phrase: str = ""  # Personality phrase for the UI
+
+
+# ── Skill catalog ────────────────────────────────────────────
+
+SKILL_CATALOG: list[SkillInfo] = [
+    SkillInfo(
+        name="capture_cell_state",
+        node_type=NodeType.INPUT_NODE,
+        description="Snapshot the current cell state – device readiness, sensor feeds, workspace layout",
+        phase="perception",
+    ),
+    SkillInfo(
+        name="decompose_task",
+        node_type=NodeType.ORCHESTRATOR_PLANNER_NODE,
+        description="Break the natural-language instruction into ordered subgoals with object, source, and target",
+        phase="planning",
+    ),
+    SkillInfo(
+        name="analyze_scene",
+        node_type=NodeType.ER_1_5_ANALYSIS_NODE,
+        description="Use Gemini Robotics ER vision to locate objects, assess feasibility, and compute waypoints",
+        phase="perception",
+    ),
+    SkillInfo(
+        name="estimate_depth",
+        node_type=NodeType.DEPTH_ESTIMATION_NODE,
+        description="Look up safe Z-heights and convert normalised vision coordinates into robot-frame poses",
+        phase="planning",
+    ),
+    SkillInfo(
+        name="move_robot",
+        node_type=NodeType.ROBOT_EXECUTION_NODE,
+        description="Send linear or joint motion commands to the robot arm",
+        phase="execution",
+    ),
+    SkillInfo(
+        name="narrate_live",
+        node_type=NodeType.GEMINI_LIVE_COMMENTARY_NODE,
+        description="Generate real-time audio commentary while the robot is moving",
+        phase="execution",
+    ),
+    SkillInfo(
+        name="verify_motion",
+        node_type=NodeType.VERIFICATION_NODE,
+        description="Confirm the robot completed its motion correctly by checking telemetry",
+        phase="verification",
+    ),
+    SkillInfo(
+        name="jog_joints",
+        node_type=NodeType.JOG_JOINTS_NODE,
+        description="Move specific robot joints by a relative degree offset",
+        phase="execution",
+    ),
+    SkillInfo(
+        name="summarize",
+        node_type=NodeType.SUMMARY_NODE,
+        description="Aggregate all step outcomes into a final execution report",
+        phase="summary",
+    ),
+]
+
+SKILL_BY_NAME: dict[str, SkillInfo] = {s.name: s for s in SKILL_CATALOG}
+SKILL_BY_NODE_TYPE: dict[NodeType, SkillInfo] = {s.node_type: s for s in SKILL_CATALOG}
+
+
+# ── Catchy phrases (Claude-style personality) ─────────────────
+
+CATCHY_PHRASES: dict[str, list[str]] = {
+    "capture_cell_state": [
+        "Scanning the factory floor...",
+        "Taking a look around the cell...",
+        "Checking what we're working with...",
+    ],
+    "decompose_task": [
+        "Breaking this down into steps...",
+        "Let me think about how to approach this...",
+        "Mapping out the game plan...",
+    ],
+    "analyze_scene": [
+        "Eyes on the workspace...",
+        "Looking for the target object...",
+        "Getting a read on the scene...",
+    ],
+    "estimate_depth": [
+        "Crunching the numbers for safe heights...",
+        "Calculating approach vectors...",
+        "Dialing in the coordinates...",
+    ],
+    "move_robot": [
+        "Sending it! Robot in motion...",
+        "Executing the move...",
+        "Here we go — arm is moving...",
+    ],
+    "narrate_live": [
+        "Narrating the action live...",
+        "Commentating in real time...",
+        "Play-by-play coming right up...",
+    ],
+    "verify_motion": [
+        "Did we nail it? Checking...",
+        "Verifying the motion result...",
+        "Making sure everything landed right...",
+    ],
+    "jog_joints": [
+        "Nudging the joints...",
+        "Fine-tuning joint positions...",
+        "Tweaking the arm angles...",
+    ],
+    "summarize": [
+        "Wrapping it up...",
+        "Here's how it all went down...",
+        "Let me put a bow on this one...",
+    ],
+    "done": [
+        "All done! Mission accomplished.",
+        "That's a wrap — task complete.",
+        "Nailed it. Everything checks out.",
+    ],
+}
