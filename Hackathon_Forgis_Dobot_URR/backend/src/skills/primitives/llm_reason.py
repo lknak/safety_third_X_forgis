@@ -1,13 +1,67 @@
 """LLMReason skill — general-purpose Gemini call for mid-flow reasoning."""
 
-from typing import Optional
+from typing import Any, Optional
 import base64
-import json
+import re
 
 from pydantic import BaseModel, Field
 
 from ..base import ExecutionContext, Skill, SkillResult
 from ..registry import register_skill
+
+_TEMPLATE_PATTERN = re.compile(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}")
+
+
+def _resolve_path(root: Any, path: str) -> Any:
+    """Resolve dotted path from dict-like / object-like roots."""
+    current = root
+    for part in path.split("."):
+        if isinstance(current, dict):
+            if part not in current:
+                return None
+            current = current.get(part)
+            continue
+        if hasattr(current, part):
+            current = getattr(current, part)
+            continue
+        return None
+    return current
+
+
+def _resolve_prompt_template(prompt: str, context: ExecutionContext) -> tuple[str, list[str]]:
+    """
+    Resolve {{path}} placeholders from flow variables.
+
+    Supported forms:
+    - {{var_name}}
+    - {{var_name.nested.key}}
+    """
+
+    unresolved: list[str] = []
+
+    def _replace(match: re.Match[str]) -> str:
+        token = match.group(1).strip()
+        if not token:
+            unresolved.append(token)
+            return match.group(0)
+
+        head = token.split(".", 1)[0]
+        base = context.get_variable(head)
+        if base is None:
+            unresolved.append(token)
+            return match.group(0)
+
+        value = _resolve_path(base, token[len(head) + 1 :]) if "." in token else base
+        if value is None:
+            unresolved.append(token)
+            return match.group(0)
+
+        if isinstance(value, (dict, list)):
+            return str(value)
+        return str(value)
+
+    rendered = _TEMPLATE_PATTERN.sub(_replace, prompt)
+    return rendered, unresolved
 
 
 class LLMReasonParams(BaseModel):
@@ -56,24 +110,33 @@ class LLMReasonSkill(Skill[LLMReasonParams]):
         from orchestrator.gemini_client import OrchestratorGeminiClient
 
         gemini = OrchestratorGeminiClient()
+        resolved_prompt, unresolved_tokens = _resolve_prompt_template(params.prompt, context)
 
         # If image is provided or requested, use ER model for vision
         image_bytes: Optional[bytes] = None
-        if params.image_b64:
-            image_bytes = base64.b64decode(params.image_b64)
-        elif params.model == "er":
+        if params.image_b64 and len(params.image_b64) > 100:
+            try:
+                image_bytes = base64.b64decode(params.image_b64)
+            except Exception:
+                image_bytes = None
+        if image_bytes is None and params.model == "er":
             # Fall back to last captured image
             image_bytes = context.get_variable("last_image_bytes")
 
         try:
             if image_bytes:
                 response = await gemini.analyze_er(
-                    prompt=params.prompt, image_bytes=image_bytes
+                    prompt=resolved_prompt, image_bytes=image_bytes
                 )
             elif params.response_format == "json":
-                response = await gemini.generate_json(params.prompt)
+                try:
+                    response = await gemini.generate_json(resolved_prompt)
+                except Exception:
+                    # Graceful fallback: avoid failing the entire run if model emits text.
+                    text = await gemini.generate_text(resolved_prompt)
+                    response = {"text": text}
             else:
-                text = await gemini.generate_text(params.prompt)
+                text = await gemini.generate_text(resolved_prompt)
                 response = {"text": text}
         except Exception as exc:
             return SkillResult.fail(f"LLM reasoning failed: {exc}")
@@ -85,4 +148,6 @@ class LLMReasonSkill(Skill[LLMReasonParams]):
             "response": response,
             "model": params.model or "default",
             "format": params.response_format,
+            "resolved_prompt": resolved_prompt,
+            "unresolved_placeholders": unresolved_tokens,
         })

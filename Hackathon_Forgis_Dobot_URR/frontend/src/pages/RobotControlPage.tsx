@@ -34,6 +34,7 @@ export function RobotControlPage() {
     runtimeMessages,
     liveText,
     latestFrame,
+    isOrchestrating,
     autoplayBlocked,
     armAudio,
     clarification,
@@ -110,6 +111,7 @@ export function RobotControlPage() {
             onSend={sendMessage}
             liveText={liveText}
             latestFrame={latestFrame}
+            isOrchestrating={isOrchestrating}
             autoplayBlocked={autoplayBlocked}
             onEnableAudio={armAudio}
           />

@@ -133,11 +133,87 @@ class OrchestratorGeminiClient:
         except Exception as exc:
             raise GeminiClientError(f"Gemini ER returned non-JSON payload: {cleaned[:200]}") from exc
 
-    async def live_commentary(self, prompt: str) -> str:
-        """Generate a short live commentary snippet."""
+    async def er_trajectory(
+        self,
+        prompt: str,
+        image_bytes: Optional[bytes] = None,
+    ) -> list[dict[str, Any]]:
+        """Plan a trajectory using Gemini ER.  Returns a JSON array of waypoints.
+
+        Each waypoint: {"point": [y, x], "label": "<order>"}
+        Coordinates are normalised to 0-1000.
+        """
         self._ensure_models()
-        response = await self._live_model.generate_content_async(prompt)
+        llm = genai.GenerativeModel(self.er_model)
+
+        parts: list[Any] = []
+        if image_bytes:
+            parts.append(Image.open(io.BytesIO(image_bytes)))
+        parts.append(prompt)
+
+        response = await llm.generate_content_async(
+            parts,
+            generation_config=genai.types.GenerationConfig(temperature=0.5),
+        )
+
         text = self._extract_text(response)
         if not text:
-            raise GeminiClientError("Gemini live commentary returned empty response")
-        return text
+            raise GeminiClientError("Gemini ER returned empty trajectory response")
+
+        cleaned = text.strip()
+        if "```json" in cleaned:
+            cleaned = cleaned.split("```json", 1)[1].split("```", 1)[0].strip()
+        elif cleaned.startswith("```"):
+            cleaned = cleaned.split("```", 1)[1].split("```", 1)[0].strip()
+
+        try:
+            data = json.loads(cleaned)
+        except Exception as exc:
+            raise GeminiClientError(
+                f"Gemini ER returned non-JSON trajectory: {cleaned[:200]}"
+            ) from exc
+
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            # ER sometimes wraps array in {"trajectory": [...]}
+            for key in ("trajectory", "points", "waypoints"):
+                if isinstance(data.get(key), list):
+                    return data[key]
+            return [data]
+        return [data]
+
+    async def live_commentary(
+        self,
+        prompt: str,
+        image_bytes: Optional[bytes] = None,
+    ) -> str:
+        """Generate a short live commentary snippet.
+
+        If image_bytes are supplied, attempt multimodal live commentary first.
+        Falls back to text-only live commentary if the model path rejects image input.
+        """
+        self._ensure_models()
+        try:
+            if image_bytes:
+                image = Image.open(io.BytesIO(image_bytes))
+                response = await self._live_model.generate_content_async([prompt, image])
+            else:
+                response = await self._live_model.generate_content_async(prompt)
+            text = self._extract_text(response)
+            if text:
+                return text
+        except Exception as exc:
+            if image_bytes:
+                logger.warning(
+                    "Live model image commentary failed, retrying text-only: %s",
+                    exc,
+                )
+                response = await self._live_model.generate_content_async(prompt)
+                text = self._extract_text(response)
+                if text:
+                    return text
+            else:
+                raise
+
+        raise GeminiClientError("Gemini live commentary returned empty response")

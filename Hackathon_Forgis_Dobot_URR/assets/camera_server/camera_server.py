@@ -137,18 +137,34 @@ class UvcCapture:
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(self.height))
             cap.set(cv2.CAP_PROP_FPS, float(self.fps))
 
+            # Read up to 20 frames to let auto-exposure settle,
+            # then check that the frame has meaningful content (not all black).
             ok = False
-            for _ in range(5):
+            good_frame = None
+            for attempt in range(20):
                 ret, frame = cap.read()
-                if ret and frame is not None and frame.size > 0:
+                if not ret or frame is None or frame.size == 0:
+                    time.sleep(0.05)
+                    continue
+                # Check brightness: a mostly-black frame has mean < 5
+                mean_val = float(np.mean(frame))
+                if mean_val >= 5.0:
                     ok = True
+                    good_frame = frame
                     break
                 time.sleep(0.05)
 
             if ok:
                 backend_name = "DirectShow" if backend == cv2.CAP_DSHOW else "default"
-                logger.info("Opened camera index %d with %s backend", index, backend_name)
+                logger.info(
+                    "Opened camera index %d with %s backend (brightness=%.1f)",
+                    index, backend_name, float(np.mean(good_frame)),
+                )
                 return cap
+            else:
+                logger.info(
+                    "Camera index %d rejected: frames too dark after 20 attempts", index
+                )
 
             cap.release()
 
@@ -307,6 +323,7 @@ class CameraServer:
     async def broadcast_frames(self) -> None:
         """Capture and broadcast frames to all connected clients."""
         consecutive_failures = 0
+        consecutive_dark = 0
 
         while self.running:
             if not self.clients:
@@ -324,10 +341,28 @@ class CameraServer:
                     logger.warning("Camera read failed repeatedly; reinitializing backend")
                     self._drop_camera()
                     consecutive_failures = 0
+                    consecutive_dark = 0
                 await asyncio.sleep(0.03)
                 continue
 
             consecutive_failures = 0
+
+            # Detect dark/dead frames (camera went to sleep, lost device, etc.)
+            mean_brightness = float(np.mean(frame))
+            if mean_brightness < 5.0:
+                consecutive_dark += 1
+                if consecutive_dark >= 60:  # ~2 seconds of dark frames at 30fps
+                    logger.warning(
+                        "Camera producing dark frames for %d consecutive frames "
+                        "(mean=%.1f); reinitializing",
+                        consecutive_dark, mean_brightness,
+                    )
+                    self._drop_camera()
+                    consecutive_dark = 0
+                    await asyncio.sleep(1.0)  # Give camera time to release
+                    continue
+            else:
+                consecutive_dark = 0
 
             encode_params = [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality]
             success, jpeg_data = cv2.imencode(".jpg", frame, encode_params)

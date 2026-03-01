@@ -50,9 +50,13 @@ class AnalyzeSceneSkill(Skill[AnalyzeSceneParams]):
 
         # Resolve image bytes
         image_bytes: Optional[bytes] = None
-        if params.image_b64:
-            image_bytes = base64.b64decode(params.image_b64)
-        else:
+        if params.image_b64 and len(params.image_b64) > 100:
+            try:
+                image_bytes = base64.b64decode(params.image_b64)
+            except Exception:
+                image_bytes = None  # Invalid base64, fall through to context
+
+        if image_bytes is None:
             image_bytes = context.get_variable("last_image_bytes")
 
         # Auto-capture if we still don't have an image
@@ -89,6 +93,7 @@ Return JSON only.
 
         # Store analysis for downstream use
         context.set_variable("last_scene_analysis", response)
+        context.set_variable("analyze_scene", response)
 
         return SkillResult.ok({
             "analysis": response,

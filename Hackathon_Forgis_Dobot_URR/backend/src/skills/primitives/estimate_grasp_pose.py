@@ -13,7 +13,11 @@ class EstimateGraspPoseParams(BaseModel):
 
     bbox: dict = Field(
         ...,
-        description="Bounding box dict with keys x, y, width, height (pixel or normalized 0-1 coords).",
+        description=(
+            "Bounding box dictionary. Supported formats: "
+            "{x,y,width,height} (normalized 0-1 or 0-1000) OR "
+            "{box_2d:[ymin,xmin,ymax,xmax]} in Gemini ER 0-1000 format."
+        ),
     )
     object_class: str = Field(
         default="object",
@@ -42,10 +46,40 @@ class EstimateGraspPoseSkill(Skill[EstimateGraspPoseParams]):
     def params_schema(cls) -> type[BaseModel]:
         return EstimateGraspPoseParams
 
+    @staticmethod
+    def _normalize_bbox(bbox: dict) -> tuple[float, float, float, float]:
+        """Return normalized (x, y, width, height) in 0..1."""
+        if isinstance(bbox.get("box_2d"), list) and len(bbox["box_2d"]) == 4:
+            ymin, xmin, ymax, xmax = [float(v) for v in bbox["box_2d"]]
+            x = (xmin + xmax) / 2.0
+            y = (ymin + ymax) / 2.0
+            width = max(0.0, xmax - xmin)
+            height = max(0.0, ymax - ymin)
+        else:
+            x = float(bbox.get("x", 0.5))
+            y = float(bbox.get("y", 0.5))
+            width = float(bbox.get("width", 0.1))
+            height = float(bbox.get("height", 0.1))
+
+        # Convert 0..1000 ER coordinates to 0..1.
+        if max(abs(x), abs(y), abs(width), abs(height)) > 1.5:
+            x /= 1000.0
+            y /= 1000.0
+            width /= 1000.0
+            height /= 1000.0
+
+        return (
+            min(max(x, 0.0), 1.0),
+            min(max(y, 0.0), 1.0),
+            min(max(width, 0.0), 1.0),
+            min(max(height, 0.0), 1.0),
+        )
+
     async def validate(self, params: EstimateGraspPoseParams) -> tuple[bool, Optional[str]]:
-        required_keys = {"x", "y", "width", "height"}
-        if not required_keys.issubset(params.bbox.keys()):
-            return False, f"bbox must contain keys: {required_keys}"
+        has_xywh = {"x", "y", "width", "height"}.issubset(params.bbox.keys())
+        has_box2d = isinstance(params.bbox.get("box_2d"), list) and len(params.bbox["box_2d"]) == 4
+        if not has_xywh and not has_box2d:
+            return False, "bbox must include {x,y,width,height} or {box_2d:[ymin,xmin,ymax,xmax]}"
         return True, None
 
     async def execute(
@@ -54,8 +88,7 @@ class EstimateGraspPoseSkill(Skill[EstimateGraspPoseParams]):
         import os
 
         bbox = params.bbox
-        x_norm = float(bbox.get("x", 0.5))
-        y_norm = float(bbox.get("y", 0.5))
+        x_norm, y_norm, width_norm, height_norm = self._normalize_bbox(bbox)
 
         # Workspace calibration from environment or defaults
         x_min = float(os.environ.get("WORKSPACE_X_MIN", "-0.25"))
@@ -89,6 +122,12 @@ class EstimateGraspPoseSkill(Skill[EstimateGraspPoseParams]):
             "approach_pose": approach_pose,
             "place_pose": place_pose,
             "object_class": params.object_class,
+            "normalized_bbox": {
+                "x": round(x_norm, 5),
+                "y": round(y_norm, 5),
+                "width": round(width_norm, 5),
+                "height": round(height_norm, 5),
+            },
             "workspace": {"x_min": x_min, "x_max": x_max, "y_min": y_min, "y_max": y_max},
             "z_clamp": {"min": min_z, "max": max_z},
         }

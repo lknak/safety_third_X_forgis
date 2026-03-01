@@ -17,26 +17,48 @@ function extractNodeMedia(
 ): ChatMessage["media"] {
   const artifacts = msg.artifacts;
   const result = artifacts?.result;
-  if (msg.node_type === "CAPTURE_IMAGE" && result && typeof result === "object") {
-    const imageB64 = (result as Record<string, unknown>).image_b64;
-    if (typeof imageB64 === "string" && imageB64.length > 0) {
-      return [
-        {
-          type: "image",
-          dataUrl: `data:image/jpeg;base64,${imageB64}`,
-          label: cleanNodeName(msg.node_name),
-        },
-      ];
+  const media: NonNullable<ChatMessage["media"]> = [];
+
+  // 1. capture_image → result.image_b64
+  if (result && typeof result === "object") {
+    const r = result as Record<string, unknown>;
+    if (typeof r.image_b64 === "string" && r.image_b64.length > 100) {
+      media.push({
+        type: "image",
+        dataUrl: `data:image/jpeg;base64,${r.image_b64}`,
+        label: cleanNodeName(msg.node_name),
+      });
+    }
+    // plan_trajectory → result.annotated_image_b64 (trajectory overlay from Gemini ER)
+    if (typeof r.annotated_image_b64 === "string" && r.annotated_image_b64.length > 100) {
+      media.push({
+        type: "image",
+        dataUrl: `data:image/jpeg;base64,${r.annotated_image_b64}`,
+        label: "ER Trajectory Plan",
+      });
     }
   }
 
-  return undefined;
+  // 2. ER node → artifacts.annotated_image (base64 JPEG)
+  if (artifacts && typeof artifacts === "object") {
+    const a = artifacts as Record<string, unknown>;
+    if (typeof a.annotated_image === "string" && (a.annotated_image as string).length > 100) {
+      media.push({
+        type: "image",
+        dataUrl: `data:image/jpeg;base64,${a.annotated_image}`,
+        label: "ER Analysis",
+      });
+    }
+  }
+
+  return media.length > 0 ? media : undefined;
 }
 
 export function useOrchestratorRun(activeFlowId: string | null) {
   const [runtimeMessages, setRuntimeMessages] = useState<ChatMessage[]>([]);
   const [liveText, setLiveText] = useState<string>("");
   const [latestFrame, setLatestFrame] = useState<string | null>(null);
+  const [isOrchestrating, setIsOrchestrating] = useState(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [clarification, setClarification] = useState<{
     flowId: string;
@@ -49,6 +71,8 @@ export function useOrchestratorRun(activeFlowId: string | null) {
   const audioQueue = useRef<string[]>([]);
   const playingRef = useRef(false);
   const socketRef = useRef<{ close: () => void } | null>(null);
+  const activeFlowIdRef = useRef(activeFlowId);
+  activeFlowIdRef.current = activeFlowId;
 
   const processAudioQueue = useCallback(async () => {
     if (playingRef.current) return;
@@ -81,13 +105,15 @@ export function useOrchestratorRun(activeFlowId: string | null) {
 
   const handleMessage = useCallback(
     (msg: ServerMessage) => {
+      const flowId = activeFlowIdRef.current;
+
       if (msg.type === "camera_frame") {
-        if (!activeFlowId) return;
+        if (!flowId) return;
         setLatestFrame(`data:image/jpeg;base64,${msg.frame}`);
         return;
       }
 
-      if (!("flow_id" in msg) || !activeFlowId || msg.flow_id !== activeFlowId) {
+      if (!("flow_id" in msg) || !flowId || msg.flow_id !== flowId) {
         return;
       }
 
@@ -156,6 +182,7 @@ export function useOrchestratorRun(activeFlowId: string | null) {
           break;
 
         case "orchestrator_run_completed": {
+          setIsOrchestrating(false);
           void stopCameraStream().catch(() => undefined);
           const isSuccess = msg.final_status === "SUCCESS";
           const message: ChatMessage = {
@@ -163,7 +190,7 @@ export function useOrchestratorRun(activeFlowId: string | null) {
             role: "assistant",
             kind: isSuccess ? "success" : "error",
             content: msg.error
-              ? `Run completed: ${msg.final_status} � ${msg.error}`
+              ? `Run completed: ${msg.final_status} � ${msg.error}`
               : `Run completed: ${msg.final_status}`,
             timestamp: Date.now(),
           };
@@ -175,13 +202,14 @@ export function useOrchestratorRun(activeFlowId: string | null) {
           break;
       }
     },
-    [activeFlowId, processAudioQueue, pushMessage],
+    [processAudioQueue, pushMessage],
   );
 
   useEffect(() => {
     setRuntimeMessages([]);
     setLiveText("");
     setLatestFrame(null);
+    setIsOrchestrating(Boolean(activeFlowId));
     setClarification(null);
     audioQueue.current = [];
     playingRef.current = false;
@@ -224,7 +252,8 @@ export function useOrchestratorRun(activeFlowId: string | null) {
       socketRef.current = null;
       void stopCameraStream().catch(() => undefined);
     };
-  }, [activeFlowId, handleMessage]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFlowId]);
 
   const submitDecision = useCallback(
     async (action: "retry" | "replan" | "modify_goal" | "safe_stop", note?: string) => {
@@ -239,6 +268,7 @@ export function useOrchestratorRun(activeFlowId: string | null) {
     runtimeMessages,
     liveText,
     latestFrame,
+    isOrchestrating,
     autoplayBlocked,
     armAudio,
     clarification,

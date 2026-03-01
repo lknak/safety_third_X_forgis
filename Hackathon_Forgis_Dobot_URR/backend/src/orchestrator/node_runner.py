@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import re
 import time
 from typing import Any, Callable, Optional
 
@@ -25,13 +26,14 @@ from .schemas import (
 logger = logging.getLogger(__name__)
 
 EventEmitter = Callable[[str, dict[str, Any]], None]
+_TEMPLATE_PATTERN = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
 
 # Map NodeType → primitive skill name
 _NODE_TO_SKILL: dict[NodeType, str] = {
     NodeType.CAPTURE_IMAGE: "capture_image",
     NodeType.ANALYZE_SCENE: "analyze_scene",
     NodeType.ESTIMATE_GRASP_POSE: "estimate_grasp_pose",
-    NodeType.DEPTH_ESTIMATION: "depth_estimation",
+    NodeType.PLAN_TRAJECTORY: "plan_trajectory",
     NodeType.LLM_REASON: "llm_reason",
     NodeType.LIVE_NARRATE: "live_narrate",
     NodeType.MOVE_TO_POSE: "move_to_pose",
@@ -45,6 +47,100 @@ _NODE_TO_SKILL: dict[NodeType, str] = {
     NodeType.WAIT: "wait",
     NodeType.VERIFY_OUTCOME: "verify_outcome",
 }
+
+
+def _tokenize_template_path(path: str) -> list[Any]:
+    """Tokenize dotted / bracketed path syntax (e.g. a.b[0]['c'])."""
+    tokens: list[Any] = []
+    i = 0
+    n = len(path)
+
+    while i < n:
+        ch = path[i]
+        if ch == ".":
+            i += 1
+            continue
+
+        if ch == "[":
+            end = path.find("]", i + 1)
+            if end == -1:
+                return []
+            raw = path[i + 1 : end].strip()
+            if (raw.startswith("'") and raw.endswith("'")) or (
+                raw.startswith('"') and raw.endswith('"')
+            ):
+                token = raw[1:-1]
+            elif raw.lstrip("-").isdigit():
+                token = int(raw)
+            else:
+                token = raw
+            tokens.append(token)
+            i = end + 1
+            continue
+
+        j = i
+        while j < n and path[j] not in ".[":
+            j += 1
+        tokens.append(path[i:j].strip())
+        i = j
+
+    return [t for t in tokens if t != ""]
+
+
+def _resolve_template_path(variables: dict[str, Any], path: str) -> Any:
+    """Resolve path against context variables, returning None when unresolved."""
+    tokens = _tokenize_template_path(path)
+    if not tokens:
+        return None
+
+    current: Any = variables
+    for token in tokens:
+        if isinstance(token, int):
+            if isinstance(current, (list, tuple)) and -len(current) <= token < len(current):
+                current = current[token]
+                continue
+            return None
+
+        if isinstance(current, dict):
+            if token in current:
+                current = current[token]
+                continue
+            return None
+
+        if hasattr(current, token):
+            current = getattr(current, token)
+            continue
+
+        return None
+
+    return current
+
+
+def _render_param_templates(value: Any, variables: dict[str, Any]) -> Any:
+    """Recursively resolve {{path}} placeholders in skill params."""
+    if isinstance(value, dict):
+        return {k: _render_param_templates(v, variables) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_render_param_templates(v, variables) for v in value]
+    if not isinstance(value, str):
+        return value
+
+    matches = list(_TEMPLATE_PATTERN.finditer(value))
+    if not matches:
+        return value
+
+    # If the full string is a single template, preserve native type.
+    if len(matches) == 1 and matches[0].span() == (0, len(value)):
+        resolved = _resolve_template_path(variables, matches[0].group(1).strip())
+        return resolved if resolved is not None else value
+
+    rendered = value
+    for m in matches:
+        token = m.group(1).strip()
+        resolved = _resolve_template_path(variables, token)
+        replacement = str(resolved) if resolved is not None else m.group(0)
+        rendered = rendered.replace(m.group(0), replacement)
+    return rendered
 
 
 class NodeRunner:
@@ -166,13 +262,9 @@ class NodeRunner:
             return {"error": f"Skill '{skill_name}' not registered"}, NodeResultStatus.FAILURE
 
         # Build execution context
-        params_dict = dict(plan.payload.get("params", {}))
-        if skill_name == "estimate_grasp_pose" and "depth_hint_m" not in params_dict:
-            last_depth = context.setdefault("variables", {}).get("last_depth_estimation")
-            if isinstance(last_depth, dict):
-                depth_value = last_depth.get("estimated_depth_m")
-                if isinstance(depth_value, (int, float)):
-                    params_dict["depth_hint_m"] = float(depth_value)
+        variables = context.setdefault("variables", {})
+        raw_params = dict(plan.payload.get("params", {}))
+        params_dict = _render_param_templates(raw_params, variables)
 
         exec_context = ExecutionContext(
             flow_id=context["flow_id"],
@@ -180,7 +272,7 @@ class NodeRunner:
             state_name=plan.name,
             executor_type=skill.executor_type,
             executors=self._executors,
-            variables=context.setdefault("variables", {}),
+            variables=variables,
         )
 
         # Parse and validate params

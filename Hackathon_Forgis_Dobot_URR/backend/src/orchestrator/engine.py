@@ -387,11 +387,22 @@ class OrchestratorEngine:
 
             node = planned_nodes[idx]
 
-            # ROBOT + LIVE are executed concurrently but recorded separately.
+            # Motion + Live commentary are executed concurrently but recorded separately.
+            # Supports both legacy (ROBOT_EXECUTION_NODE + GEMINI_LIVE_COMMENTARY_NODE)
+            # and skill-based (MOVE_TO_POSE/MOVE_JOINTS + LIVE_NARRATE) pairings.
+            _MOTION_TYPES = {
+                NodeType.ROBOT_EXECUTION_NODE,
+                NodeType.MOVE_TO_POSE,
+                NodeType.MOVE_JOINTS,
+            }
+            _LIVE_TYPES = {
+                NodeType.GEMINI_LIVE_COMMENTARY_NODE,
+                NodeType.LIVE_NARRATE,
+            }
             if (
-                node.type == NodeType.ROBOT_EXECUTION_NODE
+                node.type in _MOTION_TYPES
                 and idx + 1 < len(planned_nodes)
-                and planned_nodes[idx + 1].type == NodeType.GEMINI_LIVE_COMMENTARY_NODE
+                and planned_nodes[idx + 1].type in _LIVE_TYPES
             ):
                 live_node = planned_nodes[idx + 1]
                 try:

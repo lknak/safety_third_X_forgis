@@ -49,9 +49,12 @@ class VerifyOutcomeSkill(Skill[VerifyOutcomeParams]):
 
         # Get image
         image_bytes: Optional[bytes] = None
-        if params.image_b64:
-            image_bytes = base64.b64decode(params.image_b64)
-        else:
+        if params.image_b64 and len(params.image_b64) > 100:
+            try:
+                image_bytes = base64.b64decode(params.image_b64)
+            except Exception:
+                image_bytes = None
+        if image_bytes is None:
             try:
                 camera = context.get_executor("camera")
                 if camera.is_ready():

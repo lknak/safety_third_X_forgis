@@ -1,0 +1,51 @@
+{
+  "flow_id": "flow_db3569a32d",
+  "state_transitions": [],
+  "nodes": [
+    {
+      "name": "input",
+      "type": "INPUT_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772355004.7147062,
+      "end_time": 1772355004.7147841,
+      "artifacts": {
+        "raw_instruction": "__SKILL_DEMO__",
+        "timestamp": 1772355004.7147832,
+        "cell_state": {
+          "robot": {
+            "ready": false
+          },
+          "camera": {
+            "ready": true
+          },
+          "hand": {
+            "ready": false
+          },
+          "physical_ai_node": {
+            "ready": true
+          },
+          "io_robot": {
+            "ready": false
+          }
+        }
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "planner",
+      "type": "ORCHESTRATOR_PLANNER_NODE",
+      "status": "FAILURE",
+      "start_time": 1772355004.7264867,
+      "end_time": 1772355004.8266199,
+      "artifacts": {
+        "error": "'PlanResult' object has no attribute 'is_agentic'"
+      },
+      "timeout_ms": 30000
+    }
+  ],
+  "final_status": "FAILURE",
+  "instruction": "__SKILL_DEMO__",
+  "started_at": 1772355004.7142677,
+  "completed_at": 1772355004.8336372,
+  "error_message": "'PlanResult' object has no attribute 'is_agentic'"
+}

@@ -1,18 +1,22 @@
-"""Primitive skills — the minimal generalist skill set for the orchestrator.
+"""Primitive skills - the minimal generalist skill set for the orchestrator.
 
 16 skills across 5 layers:
-  Perception:  capture_image, analyze_scene, estimate_grasp_pose, depth_estimation
+  Perception:  capture_image, analyze_scene, estimate_grasp_pose, plan_trajectory
   Reasoning:   llm_reason, live_narrate
   Motion:      move_to_pose, move_joints, jog_joints, get_robot_state
   Actuation:   suction_on, suction_off, set_digital_output, wait_digital_input
   Flow:        wait, verify_outcome
+
+Trajectory / motion planning is handled by Gemini Robotics-ER 1.5 via the
+plan_trajectory skill. ER generates trajectory waypoints from images +
+natural-language tasks, overlays them on the image, and outputs annotated images.
 """
 
 # Perception
 from .capture_image import CaptureImageSkill
 from .analyze_scene import AnalyzeSceneSkill
 from .estimate_grasp_pose import EstimateGraspPoseSkill
-from .depth_estimation import DepthEstimationSkill
+from .plan_trajectory import PlanTrajectorySkill
 
 # Reasoning
 from .llm_reason import LLMReasonSkill
@@ -38,7 +42,7 @@ __all__ = [
     "CaptureImageSkill",
     "AnalyzeSceneSkill",
     "EstimateGraspPoseSkill",
-    "DepthEstimationSkill",
+    "PlanTrajectorySkill",
     "LLMReasonSkill",
     "LiveNarrateSkill",
     "MoveToPoseSkill",
@@ -53,55 +57,89 @@ __all__ = [
     "VerifyOutcomeSkill",
 ]
 
-# Ordered list used by the planner prompt so Gemini knows available skills
+# Ordered list used by the planner prompt so Gemini knows available skills.
+# Keep descriptions explicit so the planner can choose skills unambiguously.
 PRIMITIVE_SKILL_CATALOG = [
     {
         "name": "capture_image",
         "layer": "perception",
-        "description": "Capture a single RGB frame from the monocular camera.",
+        "description": "Capture a single RGB frame from the camera.",
         "params": {"resolution": "optional str ('480p'|'720p'|'1080p')"},
-        "returns": "image_bytes (base64), timestamp",
+        "returns": "image_b64, timestamp",
+        "use_when": "Any workflow needs a fresh frame.",
+        "avoid_when": "Not needed if a valid image_b64 already exists.",
     },
     {
         "name": "analyze_scene",
         "layer": "perception",
-        "description": "Send an image + natural-language query to Gemini VLM for scene understanding, object detection, anomaly check, text reading, or any visual question.",
-        "params": {"query": "str — what to analyze", "image_b64": "optional — auto-captured if omitted"},
-        "returns": "Structured JSON with objects, bounding_boxes, labels, spatial_relations, answer",
+        "description": "Gemini ER single-frame visual understanding for detection, counting, label reading, and visual QA.",
+        "params": {
+            "query": "str - explicit visual question",
+            "image_b64": "optional - auto-captured if omitted",
+        },
+        "returns": "analysis: {objects:[{label,bbox}], answer, spatial_relations}",
+        "use_when": "User asks what/where/how-many/read-text in current frame.",
+        "avoid_when": "Do not use for trajectory planning or long-form text synthesis.",
     },
     {
         "name": "estimate_grasp_pose",
         "layer": "perception",
-        "description": "Convert a 2D bounding box + object class into a 3D robot-frame grasp pose using monocular depth estimation and workspace calibration.",
-        "params": {"bbox": "{x,y,w,h}", "object_class": "str", "depth_hint_m": "optional float"},
-        "returns": "grasp_pose [x,y,z,rx,ry,rz], approach_pose, place_pose",
+        "description": "Convert one detected 2D object region into robot-frame 3D grasp/approach/place poses.",
+        "params": {
+            "bbox": "{x,y,width,height} or {box_2d:[ymin,xmin,ymax,xmax]}",
+            "object_class": "str",
+            "depth_hint_m": "optional float",
+        },
+        "returns": "grasp_pose, approach_pose, place_pose",
+        "use_when": "After analyze_scene when target object bbox is known.",
+        "avoid_when": "Do not call without concrete bbox coordinates.",
     },
     {
-        "name": "depth_estimation",
+        "name": "plan_trajectory",
         "layer": "perception",
-        "description": "Estimate 3D depth of an object from monocular camera using VLM spatial reasoning or monocular depth model.",
-        "params": {"bbox": "optional {x,y,w,h}", "object_class": "str", "image_b64": "optional"},
-        "returns": "estimated_depth_m, approach_z, z_clamp",
+        "description": "Gemini ER motion-path planning from image + task. Returns ordered 2D waypoints and an annotated trajectory image.",
+        "params": {
+            "task": "str - manipulation intent",
+            "num_points": "int (default 15)",
+            "object_label": "optional str",
+            "image_b64": "optional",
+        },
+        "returns": "trajectory_points [{point:[y,x],label}], annotated_image_b64, num_waypoints",
+        "use_when": "Task requires planning path/route/motion through the scene.",
+        "avoid_when": "Do not use for simple visual QA or pure text summarization.",
     },
     {
         "name": "llm_reason",
         "layer": "reasoning",
-        "description": "General-purpose Gemini call for mid-flow planning, decision-making, text parsing, conditional branching, or error diagnosis.",
-        "params": {"prompt": "str", "model": "optional ('flash'|'pro'|'er')", "response_format": "optional ('json'|'text')", "image_b64": "optional"},
+        "description": "Text reasoning only: summarize, transform, or decide using outputs from prior skills.",
+        "params": {
+            "prompt": "str",
+            "model": "optional ('flash'|'pro'|'er')",
+            "response_format": "optional ('json'|'text')",
+            "image_b64": "optional",
+        },
         "returns": "response (text or parsed JSON)",
+        "use_when": "Post-process analyze_scene/trajectory outputs.",
+        "avoid_when": "Do not use as first skill for camera perception.",
     },
     {
         "name": "live_narrate",
         "layer": "reasoning",
-        "description": "Generate real-time voice commentary about the current operation using Gemini Live.",
-        "params": {"prompt": "str", "image_b64": "optional"},
-        "returns": "commentary_text, audio_chunk_b64",
+        "description": "Gemini Live operator narration from the current camera frame. Generates one concise commentary sentence.",
+        "params": {
+            "prompt": "str",
+            "image_b64": "optional",
+            "include_scene_context": "bool (default true)",
+        },
+        "returns": "commentary_text, audio_chunk_b64, had_visual_context, model_path",
+        "use_when": "Need operator-facing live narration during motion.",
+        "avoid_when": "Do not use for detection/counting/path planning.",
     },
     {
         "name": "move_to_pose",
         "layer": "motion",
-        "description": "Move robot TCP to a Cartesian pose [x,y,z,rx,ry,rz]. Supports linear (straight-line) or joint interpolation.",
-        "params": {"pose": "[x,y,z,rx,ry,rz] meters+radians", "velocity": "float", "acceleration": "float", "motion_type": "'linear'|'joint'"},
+        "description": "Move robot TCP to Cartesian pose [x,y,z,rx,ry,rz].",
+        "params": {"pose": "[x,y,z,rx,ry,rz]", "velocity": "float", "acceleration": "float", "motion_type": "'linear'|'joint'"},
         "returns": "success, final_pose",
     },
     {
@@ -121,51 +159,50 @@ PRIMITIVE_SKILL_CATALOG = [
     {
         "name": "get_robot_state",
         "layer": "motion",
-        "description": "Read current robot state: joint positions, TCP pose, digital IO status.",
+        "description": "Read current robot state including joints, pose, and IO.",
         "params": {},
         "returns": "joint_positions_deg, tcp_pose, digital_inputs, digital_outputs, is_ready",
     },
     {
         "name": "suction_on",
         "layer": "actuation",
-        "description": "Activate the pneumatic suction gripper (vacuum on).",
+        "description": "Activate pneumatic suction gripper.",
         "params": {},
         "returns": "success",
     },
     {
         "name": "suction_off",
         "layer": "actuation",
-        "description": "Release the pneumatic suction gripper (vacuum off).",
+        "description": "Deactivate pneumatic suction gripper.",
         "params": {},
         "returns": "success",
     },
     {
         "name": "set_digital_output",
         "layer": "actuation",
-        "description": "Set a digital output pin to HIGH or LOW.",
+        "description": "Set a digital output pin HIGH or LOW.",
         "params": {"pin": "int 0-7", "value": "bool"},
         "returns": "success",
     },
     {
         "name": "wait_digital_input",
         "layer": "actuation",
-        "description": "Wait for a digital input pin to reach an expected value (sensor, external trigger).",
+        "description": "Wait for digital input pin to reach expected value.",
         "params": {"pin": "int 0-7", "expected_value": "bool", "timeout_ms": "int"},
         "returns": "success, actual_value",
     },
     {
         "name": "wait",
         "layer": "flow_control",
-        "description": "Pause execution for a fixed duration or until a natural-language condition is true (evaluated via camera+LLM).",
-        "params": {"duration_ms": "optional int", "condition": "optional str (natural language)"},
+        "description": "Pause for duration or until a natural-language condition is satisfied.",
+        "params": {"duration_ms": "optional int", "condition": "optional str"},
         "returns": "success, elapsed_ms",
     },
     {
         "name": "verify_outcome",
         "layer": "flow_control",
-        "description": "Post-action visual verification. Captures image and asks Gemini whether the expected state is achieved.",
-        "params": {"expected_state": "str (natural language description)"},
-        "returns": "verified (bool), reasoning, confidence",
+        "description": "Post-action visual verification against expected outcome.",
+        "params": {"expected_state": "str"},
+        "returns": "verified, reasoning, confidence",
     },
 ]
-

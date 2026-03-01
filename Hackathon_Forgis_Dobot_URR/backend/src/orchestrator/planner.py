@@ -39,6 +39,9 @@ ACTION_VERBS = (
     "open", "close", "grip", "release", "suction", "wait", "pause",
     "home", "stow", "calibrate", "segregate", "separate", "organize", "clear",
     "remove", "collect", "gather", "arrange", "distribute",
+    "capture", "photograph", "picture", "snapshot", "image", "photo",
+    "narrate", "commentary", "commentate", "stream", "live",
+    "analyze", "analyse", "observe", "watch", "see", "show",
 )
 ACTION_VERB_PATTERN = re.compile(r"\b(" + "|".join(ACTION_VERBS) + r")\b", re.IGNORECASE)
 
@@ -61,7 +64,7 @@ SKILL_TO_NODE_TYPE: dict[str, NodeType] = {
     "capture_image": NodeType.CAPTURE_IMAGE,
     "analyze_scene": NodeType.ANALYZE_SCENE,
     "estimate_grasp_pose": NodeType.ESTIMATE_GRASP_POSE,
-    "depth_estimation": NodeType.DEPTH_ESTIMATION,
+    "plan_trajectory": NodeType.PLAN_TRAJECTORY,
     "llm_reason": NodeType.LLM_REASON,
     "live_narrate": NodeType.LIVE_NARRATE,
     "move_to_pose": NodeType.MOVE_TO_POSE,
@@ -82,14 +85,22 @@ def _build_skill_catalog_text() -> str:
     lines: list[str] = []
     for s in PRIMITIVE_SKILL_CATALOG:
         params_str = json.dumps(s.get("params", {}))
-        lines.append(
+        line = (
             f"  - {s['name']} [{s['layer']}]: {s['description']}  "
             f"Params: {params_str}  Returns: {s.get('returns', 'success')}"
         )
+        use_when = s.get("use_when")
+        avoid_when = s.get("avoid_when")
+        if use_when:
+            line += f"  Use when: {use_when}"
+        if avoid_when:
+            line += f"  Avoid when: {avoid_when}"
+        lines.append(line)
     return "\n".join(lines)
 
 
 SKILL_CATALOG_TEXT = _build_skill_catalog_text()
+SKILL_NAMES = [s["name"] for s in PRIMITIVE_SKILL_CATALOG if isinstance(s.get("name"), str)]
 
 
 class OrchestratorPlanner:
@@ -135,14 +146,28 @@ an ordered sequence of PRIMITIVE SKILLS.
 1. Return STRICT JSON with keys:
    - "assumptions": array of string
    - "skills": array of {{"skill": str, "params": object, "description": str}}
+   - Allowed skill names ONLY: {json.dumps(SKILL_NAMES)}
 2. Use the minimum necessary skill calls.
-3. For pick-and-place: capture_image -> analyze_scene -> depth_estimation ->
-   estimate_grasp_pose -> move_to_pose (approach) -> move_to_pose (descend) ->
-   suction_on -> move_to_pose (lift) -> move_to_pose (transit) ->
-   move_to_pose (place) -> suction_off -> verify_outcome
-4. For perception-only queries: capture_image -> analyze_scene -> llm_reason
-5. Always end manipulation tasks with verify_outcome.
-6. Return JSON only.
+3. For ANY task involving motion or manipulation, ALWAYS use Gemini ER for trajectory
+   planning via the plan_trajectory skill:
+   capture_image -> analyze_scene -> plan_trajectory(task="<describe the motion>") ->
+   move_to_pose (execute waypoints from trajectory) -> verify_outcome
+   The plan_trajectory skill uses Gemini Robotics-ER 1.5 to generate optimal trajectory
+   waypoints overlaid on the camera image.  It returns an annotated image showing the
+   planned path — this image is displayed to the operator.
+4. For pick-and-place specifically:
+   capture_image -> analyze_scene -> plan_trajectory(task="pick <object> and place at <target>") ->
+   estimate_grasp_pose -> move_to_pose (approach) -> suction_on -> move_to_pose (lift) ->
+   move_to_pose (transit) -> move_to_pose (place) -> suction_off -> verify_outcome
+5. For perception-only queries: capture_image -> analyze_scene -> llm_reason
+6. Always end manipulation tasks with verify_outcome.
+7. After significant motion steps, add live_narrate for real-time commentary (engine
+   runs them concurrently with the preceding motion).
+8. plan_trajectory is the ONLY way to plan motion paths — it uses Gemini ER spatial
+   reasoning to overlay trajectories on the image.  Do NOT hardcode poses.
+9. For non-string params (bbox, pose arrays, booleans, numbers), provide concrete JSON values.
+   Never emit template placeholders like "{{...}}".
+10. Return JSON only.
 
 ## Instruction
 {instruction!r}
@@ -216,8 +241,17 @@ You must decide the NEXT SINGLE ACTION based on the CURRENT scene and what you'v
 
 - One-object manipulation:
   Goal: "Pick red block and place in Bin A"
-  Skills: depth_estimation -> estimate_grasp_pose -> move_to_pose(approach) -> move_to_pose(descend) ->
-          suction_on -> move_to_pose(lift) -> move_to_pose(target) -> suction_off -> verify_outcome
+  Skills: plan_trajectory(task="pick up the red block and move it to Bin A", object_label="red block") ->
+          estimate_grasp_pose(bbox from scene analysis) -> move_to_pose(approach) ->
+          live_narrate(prompt="Approaching target") -> move_to_pose(descend) ->
+          suction_on -> move_to_pose(lift) -> live_narrate(prompt="Lifting object") ->
+          move_to_pose(target) -> live_narrate(prompt="Placing in bin") ->
+          suction_off -> verify_outcome
+
+- Trajectory visualization:
+  Goal: "Show me how you would move the pen to the organizer"
+  Skills: capture_image -> plan_trajectory(task="move the pen to the organizer", object_label="pen")
+  NOTE: plan_trajectory returns an annotated image with trajectory overlaid — output this to the user.
 
 - Failure-aware iteration:
   If previous grasp failed, choose another object or adjust approach height/grasp point before retrying.
@@ -233,8 +267,9 @@ You must decide the NEXT SINGLE ACTION based on the CURRENT scene and what you'v
 2. If the task IS complete (nothing left to do), set "task_complete": true and "skills": []
 
 3. If the task is NOT complete, plan EXACTLY ONE logical action (e.g., pick ONE object and place it).
-   This should be a complete pick-place cycle:
-   depth_estimation -> estimate_grasp_pose -> move_to_pose (approach) -> move_to_pose (descend) ->
+   For manipulation, ALWAYS use plan_trajectory first to plan the motion via Gemini ER:
+   plan_trajectory(task="<motion description>") -> estimate_grasp_pose ->
+   move_to_pose (approach) -> move_to_pose (descend) ->
    suction_on -> move_to_pose (lift) -> move_to_pose (target) -> suction_off
 4. Use the CURRENT scene analysis for positions — do NOT reuse positions from history.
 
@@ -329,8 +364,19 @@ Return STRICT JSON only:
 {{"route": "ORCHESTRATE" | "CELL_MANAGER", "reason": "short reason"}}
 
 Routing rules:
-- ORCHESTRATE: The user asks for physical robot action, perception task execution, or a procedural workflow.
-- CELL_MANAGER: The user asks for status, diagnostics, health, connectivity, explanations, troubleshooting, or general conversation.
+- ORCHESTRATE: The user asks for ANY of these:
+  * Physical robot action (pick, place, move, jog)
+  * Perception tasks (capture image, take a picture, analyze scene, detect objects)
+  * Live commentary or narration of the cell/workspace (uses Gemini Live + camera)
+  * Visual questions about what's in the scene
+  * Any task that involves the camera, robot, or AI skills
+- CELL_MANAGER: The user asks ONLY about:
+  * System status, diagnostics, health checks
+  * Connectivity or configuration issues
+  * General conversation unrelated to robot/camera tasks
+
+IMPORTANT: "live commentary", "narrate", "describe the cell", "what do you see",
+"take a picture", "capture image", "stream", "observe" are ALL orchestration tasks.
 
 User message: {text!r}
 Cell state: {json.dumps(cell_state, default=str)}
@@ -424,6 +470,16 @@ Clamp offsets to [-45, 45]. Return JSON only.
     @staticmethod
     def _fallback_plan(instruction: str) -> dict[str, Any]:
         lower = (instruction or "").lower()
+        # Live commentary / narration
+        if any(w in lower for w in ("commentary", "commentat", "narrat", "live", "stream")):
+            return {
+                "assumptions": ["Fallback: live commentary task"],
+                "skills": [
+                    {"skill": "capture_image", "params": {}, "description": "Capture current scene"},
+                    {"skill": "analyze_scene", "params": {"query": "Describe everything visible in the robotic cell workspace"}, "description": "Analyze scene for commentary context"},
+                    {"skill": "live_narrate", "params": {"prompt": instruction, "include_scene_context": True}, "description": "Generate live commentary"},
+                ],
+            }
         if any(w in lower for w in ("what", "where", "how many", "describe", "check", "inspect", "scan", "look", "find", "detect", "count", "read", "identify")):
             return {
                 "assumptions": ["Fallback: perception-only task"],
@@ -438,7 +494,7 @@ Clamp offsets to [-45, 45]. Return JSON only.
             "skills": [
                 {"skill": "capture_image", "params": {}, "description": "Capture scene"},
                 {"skill": "analyze_scene", "params": {"query": f"Locate object for: {instruction}"}, "description": "Find target"},
-                {"skill": "depth_estimation", "params": {"bbox": {"x": 0.5, "y": 0.5, "width": 0.1, "height": 0.1}, "object_class": "object"}, "description": "Estimate depth"},
+                {"skill": "plan_trajectory", "params": {"task": instruction, "num_points": 15}, "description": "Plan trajectory with Gemini ER"},
                 {"skill": "estimate_grasp_pose", "params": {"bbox": {"x": 0.5, "y": 0.5, "width": 0.1, "height": 0.1}, "object_class": "object"}, "description": "Estimate grasp"},
                 {"skill": "move_to_pose", "params": {"pose": [0, 0, 0.3, 0, 3.14, 0], "motion_type": "joint"}, "description": "Approach"},
                 {"skill": "suction_on", "params": {}, "description": "Grasp"},
@@ -484,7 +540,7 @@ Clamp offsets to [-45, 45]. Return JSON only.
             task_complete=False,
             reasoning=f"Gemini unavailable — fallback pick attempt (iteration {iteration})",
             skills=[
-                {"skill": "depth_estimation", "params": {"bbox": bbox, "object_class": object_label}, "description": f"Estimate depth for {object_label}"},
+                {"skill": "plan_trajectory", "params": {"task": f"pick {object_label} and move to target", "object_label": object_label, "num_points": 15}, "description": f"Plan trajectory for {object_label} with Gemini ER"},
                 {"skill": "estimate_grasp_pose", "params": {"bbox": bbox, "object_class": object_label}, "description": f"Estimate grasp for {object_label}"},
                 {"skill": "move_to_pose", "params": {"pose": [0.0, 0.0, 0.25, 0.0, 3.14, 0.0], "motion_type": "joint"}, "description": "Approach target"},
                 {"skill": "move_to_pose", "params": {"pose": [0.0, 0.0, 0.12, 0.0, 3.14, 0.0], "motion_type": "linear"}, "description": "Descend to grasp height"},
@@ -536,6 +592,8 @@ Clamp offsets to [-45, 45]. Return JSON only.
                 timeout_ms = 45000
             elif node_type in (NodeType.WAIT, NodeType.WAIT_DIGITAL_INPUT):
                 timeout_ms = 60000
+            elif node_type == NodeType.PLAN_TRAJECTORY:
+                timeout_ms = 60000  # ER trajectory planning can take a while
             elif node_type in (NodeType.CAPTURE_IMAGE, NodeType.GET_ROBOT_STATE,
                                NodeType.SUCTION_ON, NodeType.SUCTION_OFF):
                 timeout_ms = 10000

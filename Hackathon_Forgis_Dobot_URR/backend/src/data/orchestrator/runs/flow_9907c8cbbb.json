@@ -1,0 +1,211 @@
+{
+  "flow_id": "flow_9907c8cbbb",
+  "state_transitions": [],
+  "nodes": [
+    {
+      "name": "input",
+      "type": "INPUT_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772356977.0022914,
+      "end_time": 1772356977.0025334,
+      "artifacts": {
+        "raw_instruction": "can you lift up the small box",
+        "timestamp": 1772356977.0025318,
+        "cell_state": {
+          "robot": {
+            "ready": true
+          },
+          "camera": {
+            "ready": true
+          },
+          "hand": {
+            "ready": true
+          },
+          "io_robot": {
+            "ready": true
+          }
+        }
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "planner",
+      "type": "ORCHESTRATOR_PLANNER_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772356977.0039458,
+      "end_time": 1772356984.4069169,
+      "artifacts": {
+        "subgoals": [
+          {
+            "id": "step_1",
+            "skill": "capture_image",
+            "description": "Capture an initial image of the workspace to identify the 'small box'."
+          },
+          {
+            "id": "step_2",
+            "skill": "analyze_scene",
+            "description": "Use VLM to find the 'small box' and get its 2D bounding box."
+          },
+          {
+            "id": "step_3",
+            "skill": "depth_estimation",
+            "description": "Estimate the 3D depth of the 'small box' using ER spatial reasoning for accurate grasping."
+          },
+          {
+            "id": "step_4",
+            "skill": "estimate_grasp_pose",
+            "description": "Calculate the 3D grasp pose, approach pose, and a default lift/place pose for the 'small box'."
+          },
+          {
+            "id": "step_5",
+            "skill": "move_to_pose",
+            "description": "Move the robot's end-effector to the calculated approach pose above the small box."
+          },
+          {
+            "id": "step_6",
+            "skill": "live_narrate",
+            "description": "Provide real-time commentary as the robot moves to the approach pose."
+          },
+          {
+            "id": "step_7",
+            "skill": "move_to_pose",
+            "description": "Move the robot down to the grasp pose, making contact with the small box."
+          },
+          {
+            "id": "step_8",
+            "skill": "suction_on",
+            "description": "Activate the suction gripper to pick up the small box."
+          },
+          {
+            "id": "step_9",
+            "skill": "wait",
+            "description": "Wait briefly for suction to fully engage."
+          },
+          {
+            "id": "step_10",
+            "skill": "move_to_pose",
+            "description": "Lift the small box vertically from its original position back to the approach pose."
+          },
+          {
+            "id": "step_11",
+            "skill": "live_narrate",
+            "description": "Provide real-time commentary as the robot lifts the box."
+          },
+          {
+            "id": "step_12",
+            "skill": "verify_outcome",
+            "description": "Verify visually that the small box has been successfully lifted by the robot."
+          }
+        ],
+        "assumptions": [
+          "A 'small box' is present and clearly visible in the robot's camera view.",
+          "The robot is equipped with a suction gripper.",
+          "The 'lift up' action implies picking the box from its current location and raising it vertically to a safe height, without a specific new placement location."
+        ],
+        "plan_mode": "STATIC",
+        "reasoning": "A 'small box' is present and clearly visible in the robot's camera view.; The robot is equipped with a suction gripper.; The 'lift up' action implies picking the box from its current location and raising it vertically to a safe height, without a specific new placement location.",
+        "ordered_node_list": [
+          {
+            "name": "step_1_capture_image",
+            "type": "CAPTURE_IMAGE",
+            "timeout_ms": 10000
+          },
+          {
+            "name": "step_2_analyze_scene",
+            "type": "ANALYZE_SCENE",
+            "timeout_ms": 30000
+          },
+          {
+            "name": "step_3_depth_estimation",
+            "type": "DEPTH_ESTIMATION",
+            "timeout_ms": 30000
+          },
+          {
+            "name": "step_4_estimate_grasp_pose",
+            "type": "ESTIMATE_GRASP_POSE",
+            "timeout_ms": 30000
+          },
+          {
+            "name": "step_5_move_to_pose",
+            "type": "MOVE_TO_POSE",
+            "timeout_ms": 45000
+          },
+          {
+            "name": "step_6_live_narrate",
+            "type": "LIVE_NARRATE",
+            "timeout_ms": 30000
+          },
+          {
+            "name": "step_7_move_to_pose",
+            "type": "MOVE_TO_POSE",
+            "timeout_ms": 45000
+          },
+          {
+            "name": "step_8_suction_on",
+            "type": "SUCTION_ON",
+            "timeout_ms": 10000
+          },
+          {
+            "name": "step_9_wait",
+            "type": "WAIT",
+            "timeout_ms": 60000
+          },
+          {
+            "name": "step_10_move_to_pose",
+            "type": "MOVE_TO_POSE",
+            "timeout_ms": 45000
+          },
+          {
+            "name": "step_11_live_narrate",
+            "type": "LIVE_NARRATE",
+            "timeout_ms": 30000
+          },
+          {
+            "name": "step_12_verify_outcome",
+            "type": "VERIFY_OUTCOME",
+            "timeout_ms": 30000
+          },
+          {
+            "name": "summary",
+            "type": "SUMMARY_NODE",
+            "timeout_ms": 10000
+          }
+        ]
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "step_1_capture_image",
+      "type": "CAPTURE_IMAGE",
+      "status": "SUCCESS",
+      "start_time": 1772356984.4091508,
+      "end_time": 1772356984.4092472,
+      "artifacts": {
+        "skill_name": "capture_image",
+        "description": "Capture an initial image of the workspace to identify the 'small box'.",
+        "result": {
+          "image_b64": "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p/5Lxf8AxNNPj/xQf+Yn/wCQIv8A4mucoouwsbU3i7Xrhi0uoMxPXEaDP5CoB4i1UAj7WcHr8i/4VmUUrIq5sL4s1xRgXxx05jQ/0p6eMdeTO2+HPXMMZ/mtYlFFkI3T418Ql1c343L0PkR8f+O0/wD4TnxISSdR5Iwf3MfT/vmufooA3z458RnrqP8A5Aj/APiaP+E58R/9BH/yBH/8TWBRRZDTsFFFFAgooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooA/9k=",
+          "timestamp": 1772356984.4092402,
+          "size_bytes": 6608
+        }
+      },
+      "timeout_ms": 10000
+    },
+    {
+      "name": "step_2_analyze_scene",
+      "type": "ANALYZE_SCENE",
+      "status": "FAILURE",
+      "start_time": 1772356984.4119866,
+      "end_time": 1772356984.4174986,
+      "artifacts": {
+        "error": "Incorrect padding"
+      },
+      "timeout_ms": 30000
+    }
+  ],
+  "final_status": "ABORTED",
+  "instruction": "can you lift up the small box",
+  "started_at": 1772356977.0018039,
+  "completed_at": 1772356998.2319164,
+  "error_message": "Incorrect padding"
+}

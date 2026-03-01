@@ -1,0 +1,122 @@
+{
+  "flow_id": "flow_e4387d5b44",
+  "state_transitions": [],
+  "nodes": [
+    {
+      "name": "input",
+      "type": "INPUT_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772356943.3767095,
+      "end_time": 1772356943.376971,
+      "artifacts": {
+        "raw_instruction": "can you live commentate the scene and whats happenung there",
+        "timestamp": 1772356943.3769696,
+        "cell_state": {
+          "robot": {
+            "ready": true
+          },
+          "camera": {
+            "ready": true
+          },
+          "hand": {
+            "ready": true
+          },
+          "io_robot": {
+            "ready": true
+          }
+        }
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "planner",
+      "type": "ORCHESTRATOR_PLANNER_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772356943.382522,
+      "end_time": 1772356946.3717628,
+      "artifacts": {
+        "subgoals": [
+          {
+            "id": "step_1",
+            "skill": "live_narrate",
+            "description": "Start real-time visual commentary of the current scene using the camera feed and Gemini ER."
+          }
+        ],
+        "assumptions": [
+          "The camera has a view of the scene to be commentated."
+        ],
+        "plan_mode": "STATIC",
+        "reasoning": "The camera has a view of the scene to be commentated.",
+        "ordered_node_list": [
+          {
+            "name": "step_1_live_narrate",
+            "type": "LIVE_NARRATE",
+            "timeout_ms": 30000
+          },
+          {
+            "name": "summary",
+            "type": "SUMMARY_NODE",
+            "timeout_ms": 10000
+          }
+        ]
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "step_1_live_narrate",
+      "type": "LIVE_NARRATE",
+      "status": "SUCCESS",
+      "start_time": 1772356946.3730922,
+      "end_time": 1772356952.0359876,
+      "artifacts": {
+        "skill_name": "live_narrate",
+        "description": "Start real-time visual commentary of the current scene using the camera feed and Gemini ER.",
+        "result": {
+          "commentary_text": "It appears we have lost the video feed; the screen is completely black.",
+          "audio_chunk_b64": "SXQgYXBwZWFycyB3ZSBoYXZlIGxvc3QgdGhlIHZpZGVvIGZlZWQ7IHRoZSBzY3JlZW4gaXMgY29tcGxldGVseSBibGFjay4=",
+          "had_visual_context": true
+        }
+      },
+      "timeout_ms": 30000
+    },
+    {
+      "name": "summary",
+      "type": "SUMMARY_NODE",
+      "status": "SUCCESS",
+      "start_time": 1772356952.0388806,
+      "end_time": 1772356952.0389056,
+      "artifacts": {
+        "requested_task": "can you live commentate the scene and whats happenung there",
+        "planned_steps": [
+          "step_1_live_narrate",
+          "summary"
+        ],
+        "step_outcomes": [
+          {
+            "name": "input",
+            "type": "INPUT_NODE",
+            "status": "SUCCESS"
+          },
+          {
+            "name": "planner",
+            "type": "ORCHESTRATOR_PLANNER_NODE",
+            "status": "SUCCESS"
+          },
+          {
+            "name": "step_1_live_narrate",
+            "type": "LIVE_NARRATE",
+            "status": "SUCCESS"
+          }
+        ],
+        "deviations": [],
+        "observations": []
+      },
+      "timeout_ms": 10000
+    }
+  ],
+  "final_status": "SUCCESS",
+  "instruction": "can you live commentate the scene and whats happenung there",
+  "started_at": 1772356943.3765297,
+  "completed_at": 1772356952.0392854,
+  "error_message": null
+}
